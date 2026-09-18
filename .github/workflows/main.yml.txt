@@ -1,0 +1,63 @@
+name: Windows Cloud PC - AnyDesk (Opcional)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Iniciando construcción...
+    runs-on: windows-latest
+    timeout-minutes: 10080 # Máximo de 7 días
+
+    steps:
+
+      - name: Descargar e instalar componentes esenciales
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://www.dropbox.com/scl/fi/dr310yfyg0ti6mwano3fv/Downloads.bat?rlkey=a2wbeiel73ra5i0nsdd6ud9qr&st=r26jd007&dl=1" `
+            -OutFile "Downloads.bat"
+
+          cmd /c Downloads.bat
+
+      - name: Iniciar AnyDesk (opcional)
+        continue-on-error: true
+        run: |
+          if (Test-Path "start.bat") {
+              Write-Host "start.bat encontrado. Intentando iniciar AnyDesk..."
+              cmd /c start.bat
+          }
+          else {
+              Write-Host "AnyDesk no está configurado. Continuando sin AnyDesk."
+          }
+
+      - name: Mantener la PC virtual activa
+        run: |
+          Write-Host "La PC virtual está activa."
+          Write-Host "AnyDesk es opcional y no controla la duración de la sesión."
+
+          $endTime = (Get-Date).AddDays(7)
+
+          while ((Get-Date) -lt $endTime) {
+
+              $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+
+              if ($anydesk) {
+                  Write-Host "AnyDesk está ejecutándose."
+              }
+              else {
+                  Write-Host "AnyDesk no está ejecutándose. La PC continúa activa."
+              }
+
+              Start-Sleep -Seconds 300
+          }
+
+          Write-Host "Tiempo máximo alcanzado."
+
+      - name: Limpiar archivos temporales
+        if: always()
+        run: |
+          if (Test-Path "Downloads.bat") {
+              Remove-Item "Downloads.bat" -Force
+          }
+
+          Write-Host "Limpieza completada."
