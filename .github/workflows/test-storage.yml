@@ -47,15 +47,17 @@ jobs:
         run: |
           $testFile = ".\Storage\TEST_PC_STORAGE.txt"
 
-          $content = @"PRUEBA DE CONEXION PC -> STORAGE
-          Fecha:
-          $(Get-Date)
-          La conexion funciona correctamente.
-          "@
+          $content = "PRUEBA DE CONEXION PC -> STORAGE"
+          $content += ""
+          $content += "Fecha:"
+          $content += (Get-Date).ToString()
+          $content += ""
+          $content += "La conexion funciona correctamente."
 
           Set-Content -Path $testFile -Value $content -Encoding UTF8
 
           Write-Host "Archivo de prueba creado correctamente."
+          Write-Host "Archivo: $testFile"
 
       - name: Subir prueba a Storage
         shell: powershell
