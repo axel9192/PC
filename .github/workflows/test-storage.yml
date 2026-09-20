@@ -1,0 +1,83 @@
+name: Test Storage
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Probando conexión con Storage
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar Storage
+        uses: actions/checkout@v4
+        with:
+          repository: axel9192/Storage
+          token: ${{ secrets.STORAGE_TOKEN }}
+          path: Storage
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Comprobar Storage
+        shell: powershell
+        run: |
+          Write-Host "======================================"
+          Write-Host "       PRUEBA DE STORAGE"
+          Write-Host "======================================"
+
+          if (-not (Test-Path ".\Storage")) {
+              Write-Error "No se pudo descargar el repositorio Storage."
+              exit 1
+          }
+
+          Write-Host "Storage fue descargado correctamente."
+
+          if (-not (Test-Path ".\Storage\manifest.json")) {
+              Write-Error "No se encontró manifest.json."
+              exit 1
+          }
+
+          Write-Host "manifest.json encontrado."
+          Write-Host ""
+          Write-Host "Contenido de manifest.json:"
+          Get-Content ".\Storage\manifest.json"
+
+      - name: Crear archivo de prueba
+        shell: powershell
+        run: |
+          $testFile = ".\Storage\TEST_PC_STORAGE.txt"
+
+          $content = @"PRUEBA DE CONEXION PC -> STORAGE
+          Fecha:
+          $(Get-Date)
+          La conexion funciona correctamente.
+          "@
+
+          Set-Content -Path $testFile -Value $content -Encoding UTF8
+
+          Write-Host "Archivo de prueba creado correctamente."
+
+      - name: Subir prueba a Storage
+        shell: powershell
+        run: |
+          Set-Location ".\Storage"
+
+          git config user.name "PC Cloud"
+          git config user.email "actions@github.com"
+
+          git add .
+
+          $changes = git status --porcelain
+
+          if (-not $changes) {
+              Write-Host "No hay cambios para subir."
+              exit 0
+          }
+
+          git commit -m "Test: conexion PC Storage"
+          git push
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host " CAMBIOS SUBIDOS CORRECTAMENTE"
+          Write-Host "======================================"
