@@ -70,7 +70,7 @@ jobs:
           }
           else {
 
-              Write-Host "⚠️ NO SE DETECTARON DISPOSITIVOS DE SONIDO."
+              Write-Host "NO SE DETECTARON DISPOSITIVOS DE SONIDO."
 
           }
 
@@ -128,7 +128,7 @@ jobs:
 
           if (-not $driver) {
 
-              Write-Host "❌ No se encontró Scream.sys"
+              Write-Host " No se encontró Scream.sys"
               exit 1
 
           }
@@ -164,7 +164,7 @@ jobs:
           }
           else {
 
-              Write-Host "⚠️ No se encontró certificado del driver."
+              Write-Host " No se encontró certificado del driver."
 
           }
 
@@ -182,7 +182,7 @@ jobs:
 
           if (-not $devcon) {
 
-              Write-Host "❌ No se encontró devcon.exe"
+              Write-Host "No se encontró devcon.exe"
               exit 1
 
           }
@@ -204,7 +204,7 @@ jobs:
 
           if (-not $inf) {
 
-              Write-Host "❌ No se encontró Scream.inf"
+              Write-Host "No se encontró Scream.inf"
               exit 1
 
           }
@@ -284,7 +284,7 @@ jobs:
           }
           else {
 
-              Write-Host "❌ No hay dispositivos Win32_SoundDevice."
+              Write-Host " No hay dispositivos Win32_SoundDevice."
 
           }
 
@@ -304,7 +304,7 @@ jobs:
 
               Write-Host ""
               Write-Host "=========================================="
-              Write-Host "✅ AUDIO VIRTUAL DETECTADO"
+              Write-Host " AUDIO VIRTUAL DETECTADO"
               Write-Host "=========================================="
 
               $scream |
@@ -316,7 +316,7 @@ jobs:
 
               Write-Host ""
               Write-Host "=========================================="
-              Write-Host "⚠️ SCREAM NO FUE DETECTADO"
+              Write-Host "SCREAM NO FUE DETECTADO"
               Write-Host "=========================================="
 
               Write-Host ""
@@ -419,12 +419,12 @@ jobs:
 
               if ($anyAudio) {
 
-                  Write-Host "🔊 Scream: DETECTADO"
+                  Write-Host "Scream: DETECTADO"
 
               }
               else {
 
-                  Write-Host "⚠️ Scream: NO DETECTADO"
+                  Write-Host "Scream: NO DETECTADO"
 
               }
 
@@ -438,12 +438,12 @@ jobs:
 
               if ($anydesk) {
 
-                  Write-Host "🟢 AnyDesk: EJECUTÁNDOSE"
+                  Write-Host "AnyDesk: EJECUTÁNDOSE"
 
               }
               else {
 
-                  Write-Host "⚪ AnyDesk: NO EJECUTÁNDOSE"
+                  Write-Host "AnyDesk: NO EJECUTÁNDOSE"
 
               }
 
