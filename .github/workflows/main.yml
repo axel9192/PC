@@ -1,4 +1,4 @@
-name: Windows Cloud PC - AnyDesk (Opcional)
+name: Windows Cloud PC - Audio + AnyDesk (Opcional)
 
 on:
   workflow_dispatch:
@@ -7,57 +7,480 @@ jobs:
   build:
     name: Iniciando construcción...
     runs-on: windows-latest
-    timeout-minutes: 10080 # Máximo de 7 días
+    timeout-minutes: 10080
 
     steps:
 
-      - name: Descargar e instalar componentes esenciales
+      # ============================================================
+      # 1. INICIAR SERVICIOS DE AUDIO DE WINDOWS
+      # ============================================================
+
+      - name: Iniciar servicios de audio
+        shell: powershell
         run: |
+          Write-Host "=========================================="
+          Write-Host "INICIANDO SERVICIOS DE AUDIO"
+          Write-Host "=========================================="
+
+          $services = @(
+              "AudioEndpointBuilder",
+              "Audiosrv"
+          )
+
+          foreach ($service in $services) {
+
+              $svc = Get-Service -Name $service -ErrorAction SilentlyContinue
+
+              if ($svc) {
+
+                  Write-Host "Servicio encontrado: $service"
+
+                  if ($svc.Status -ne "Running") {
+                      Start-Service -Name $service -ErrorAction SilentlyContinue
+                      Start-Sleep -Seconds 2
+                  }
+
+                  Write-Host "$service -> $((Get-Service $service).Status)"
+              }
+              else {
+                  Write-Host "No se encontró: $service"
+              }
+          }
+
+
+      # ============================================================
+      # 2. COMPROBAR AUDIO ANTES DE INSTALAR EL DISPOSITIVO VIRTUAL
+      # ============================================================
+
+      - name: Comprobar dispositivos de audio iniciales
+        shell: powershell
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "AUDIO ANTES DE LA INSTALACIÓN"
+          Write-Host "=========================================="
+
+          $devices = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
+
+          if ($devices) {
+
+              Write-Host "Se encontraron dispositivos de sonido:"
+              $devices | Select-Object Name, Status, PNPDeviceID | Format-List
+
+          }
+          else {
+
+              Write-Host "⚠️ NO SE DETECTARON DISPOSITIVOS DE SONIDO."
+
+          }
+
+
+      # ============================================================
+      # 3. DESCARGAR E INSTALAR SCREAM
+      # ============================================================
+
+      - name: Instalar dispositivo de audio virtual Scream
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "INSTALANDO SCREAM"
+          Write-Host "=========================================="
+
+          $zip = "C:\Scream3.6.zip"
+          $folder = "C:\Scream"
+
+          if (Test-Path $folder) {
+              Remove-Item $folder -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "Descargando Scream..."
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/duncanthrax/scream/releases/download/3.6/Scream3.6.zip" `
+            -OutFile $zip
+
+          Write-Host "Descarga completada."
+
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+
+          Write-Host "Extrayendo Scream..."
+
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $folder `
+            -Force
+
+          Write-Host "Extracción completada."
+
+
+          # ----------------------------------------------------------
+          # INSTALAR CERTIFICADO DEL DRIVER
+          # ----------------------------------------------------------
+
+          $driver = Get-ChildItem `
+            -Path $folder `
+            -Filter "Scream.sys" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $driver) {
+
+              Write-Host "❌ No se encontró Scream.sys"
+              exit 1
+
+          }
+
+          Write-Host "Driver encontrado:"
+          Write-Host $driver.FullName
+
+
+          $signature = Get-AuthenticodeSignature $driver.FullName
+
+          Write-Host "Estado de firma:"
+          Write-Host $signature.Status
+
+
+          if ($signature.SignerCertificate) {
+
+              Write-Host "Instalando certificado..."
+
+              $store = New-Object `
+                System.Security.Cryptography.X509Certificates.X509Store(
+                  "TrustedPublisher",
+                  "LocalMachine"
+                )
+
+              $store.Open("ReadWrite")
+
+              $store.Add($signature.SignerCertificate)
+
+              $store.Close()
+
+              Write-Host "Certificado instalado."
+
+          }
+          else {
+
+              Write-Host "⚠️ No se encontró certificado del driver."
+
+          }
+
+
+          # ----------------------------------------------------------
+          # BUSCAR DEVCON
+          # ----------------------------------------------------------
+
+          $devcon = Get-ChildItem `
+            -Path $folder `
+            -Filter "devcon.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $devcon) {
+
+              Write-Host "❌ No se encontró devcon.exe"
+              exit 1
+
+          }
+
+          Write-Host "Devcon encontrado:"
+          Write-Host $devcon.FullName
+
+
+          # ----------------------------------------------------------
+          # BUSCAR Scream.inf
+          # ----------------------------------------------------------
+
+          $inf = Get-ChildItem `
+            -Path $folder `
+            -Filter "Scream.inf" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $inf) {
+
+              Write-Host "❌ No se encontró Scream.inf"
+              exit 1
+
+          }
+
+          Write-Host "INF encontrado:"
+          Write-Host $inf.FullName
+
+
+          # ----------------------------------------------------------
+          # INSTALAR DISPOSITIVO
+          # ----------------------------------------------------------
+
+          Write-Host ""
+          Write-Host "Instalando dispositivo Scream..."
+
+          & $devcon.FullName install $inf.FullName "*Scream"
+
+          Write-Host ""
+          Write-Host "Instalación de Scream terminada."
+
+
+      # ============================================================
+      # 4. REINICIAR SERVICIOS DE AUDIO
+      # ============================================================
+
+      - name: Reiniciar servicios de audio
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "REINICIANDO AUDIO"
+          Write-Host "=========================================="
+
+          Restart-Service `
+            -Name "AudioEndpointBuilder" `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          Start-Sleep -Seconds 3
+
+          Restart-Service `
+            -Name "Audiosrv" `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          Start-Sleep -Seconds 5
+
+          Write-Host "Servicios de audio reiniciados."
+
+
+      # ============================================================
+      # 5. COMPROBACIÓN AUTOMÁTICA
+      # ============================================================
+
+      - name: Comprobar dispositivo de audio
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "COMPROBACIÓN FINAL DE AUDIO"
+          Write-Host "=========================================="
+
+          Write-Host ""
+          Write-Host "Dispositivos Win32_SoundDevice:"
+          Write-Host "------------------------------------------"
+
+          $devices = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
+
+          if ($devices) {
+
+              $devices |
+                Select-Object Name, Status, Manufacturer, PNPDeviceID |
+                Format-List
+
+          }
+          else {
+
+              Write-Host "❌ No hay dispositivos Win32_SoundDevice."
+
+          }
+
+
+          Write-Host ""
+          Write-Host "Buscando Scream..."
+          Write-Host "------------------------------------------"
+
+          $scream = Get-CimInstance Win32_SoundDevice `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Name -match "Scream"
+            }
+
+
+          if ($scream) {
+
+              Write-Host ""
+              Write-Host "=========================================="
+              Write-Host "✅ AUDIO VIRTUAL DETECTADO"
+              Write-Host "=========================================="
+
+              $scream |
+                Select-Object Name, Status, Manufacturer |
+                Format-List
+
+          }
+          else {
+
+              Write-Host ""
+              Write-Host "=========================================="
+              Write-Host "⚠️ SCREAM NO FUE DETECTADO"
+              Write-Host "=========================================="
+
+              Write-Host ""
+              Write-Host "El runner no tiene un dispositivo Scream visible."
+
+          }
+
+
+          Write-Host ""
+          Write-Host "Servicios de audio:"
+          Write-Host "------------------------------------------"
+
+          Get-Service `
+            -Name "AudioEndpointBuilder","Audiosrv" `
+            -ErrorAction SilentlyContinue |
+            Select-Object Name, Status |
+            Format-Table -AutoSize
+
+
+      # ============================================================
+      # 6. DESCARGAR COMPONENTES DEL USUARIO
+      # ============================================================
+
+      - name: Descargar e instalar componentes esenciales
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "DESCARGANDO COMPONENTES"
+          Write-Host "=========================================="
+
           Invoke-WebRequest `
             -Uri "https://www.dropbox.com/scl/fi/dr310yfyg0ti6mwano3fv/Downloads.bat?rlkey=a2wbeiel73ra5i0nsdd6ud9qr&st=r26jd007&dl=1" `
             -OutFile "Downloads.bat"
 
           cmd /c Downloads.bat
 
+
+      # ============================================================
+      # 7. INICIAR ANYDESK OPCIONAL
+      # ============================================================
+
       - name: Iniciar AnyDesk (opcional)
         continue-on-error: true
+        shell: powershell
         run: |
+
           if (Test-Path "start.bat") {
-              Write-Host "start.bat encontrado. Intentando iniciar AnyDesk..."
+
+              Write-Host "start.bat encontrado."
+              Write-Host "Intentando iniciar AnyDesk..."
+
               cmd /c start.bat
+
           }
           else {
-              Write-Host "AnyDesk no está configurado. Continuando sin AnyDesk."
+
+              Write-Host "AnyDesk no está configurado."
+              Write-Host "Continuando sin AnyDesk."
+
           }
 
+
+      # ============================================================
+      # 8. MANTENER LA PC ACTIVA
+      # ============================================================
+
       - name: Mantener la PC virtual activa
+        shell: powershell
         run: |
-          Write-Host "La PC virtual está activa."
-          Write-Host "AnyDesk es opcional y no controla la duración de la sesión."
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "PC VIRTUAL ACTIVA"
+          Write-Host "=========================================="
+
+          Write-Host "Audio virtual configurado."
+          Write-Host "AnyDesk es opcional."
+          Write-Host "Chrome Remote Desktop puede utilizar el audio disponible."
 
           $endTime = (Get-Date).AddDays(7)
 
           while ((Get-Date) -lt $endTime) {
 
-              $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+              Write-Host ""
+              Write-Host "------------------------------------------"
+              Write-Host "Estado: $(Get-Date)"
+              Write-Host "------------------------------------------"
 
-              if ($anydesk) {
-                  Write-Host "AnyDesk está ejecutándose."
+
+              # Comprobar Scream
+
+              $anyAudio = Get-CimInstance Win32_SoundDevice `
+                -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $_.Name -match "Scream"
+                }
+
+
+              if ($anyAudio) {
+
+                  Write-Host "🔊 Scream: DETECTADO"
+
               }
               else {
-                  Write-Host "AnyDesk no está ejecutándose. La PC continúa activa."
+
+                  Write-Host "⚠️ Scream: NO DETECTADO"
+
               }
+
+
+              # Comprobar AnyDesk
+
+              $anydesk = Get-Process `
+                -Name "AnyDesk" `
+                -ErrorAction SilentlyContinue
+
+
+              if ($anydesk) {
+
+                  Write-Host "🟢 AnyDesk: EJECUTÁNDOSE"
+
+              }
+              else {
+
+                  Write-Host "⚪ AnyDesk: NO EJECUTÁNDOSE"
+
+              }
+
 
               Start-Sleep -Seconds 300
           }
 
+
+          Write-Host ""
           Write-Host "Tiempo máximo alcanzado."
+
+
+      # ============================================================
+      # 9. LIMPIEZA
+      # ============================================================
 
       - name: Limpiar archivos temporales
         if: always()
+        shell: powershell
         run: |
+
           if (Test-Path "Downloads.bat") {
-              Remove-Item "Downloads.bat" -Force
+
+              Remove-Item `
+                "Downloads.bat" `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+          }
+
+          if (Test-Path "C:\Scream3.6.zip") {
+
+              Remove-Item `
+                "C:\Scream3.6.zip" `
+                -Force `
+                -ErrorAction SilentlyContinue
+
           }
 
           Write-Host "Limpieza completada."
