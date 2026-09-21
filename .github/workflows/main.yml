@@ -5,18 +5,18 @@ on:
 
 jobs:
   build:
-    name: Iniciando construcción...
+    name: Iniciando construccion
     runs-on: windows-latest
     timeout-minutes: 10080
 
     steps:
 
       # ============================================================
-      # 1. INICIAR SERVICIOS DE AUDIO DE WINDOWS
+      # 1. INICIAR SERVICIOS DE AUDIO
       # ============================================================
 
       - name: Iniciar servicios de audio
-        shell: powershell
+        shell: pwsh
         run: |
           Write-Host "=========================================="
           Write-Host "INICIANDO SERVICIOS DE AUDIO"
@@ -43,21 +43,21 @@ jobs:
                   Write-Host "$service -> $((Get-Service $service).Status)"
               }
               else {
-                  Write-Host "No se encontró: $service"
+                  Write-Host "No se encontro: $service"
               }
           }
 
 
       # ============================================================
-      # 2. COMPROBAR AUDIO ANTES DE INSTALAR EL DISPOSITIVO VIRTUAL
+      # 2. COMPROBAR AUDIO INICIAL
       # ============================================================
 
       - name: Comprobar dispositivos de audio iniciales
-        shell: powershell
+        shell: pwsh
         run: |
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "AUDIO ANTES DE LA INSTALACIÓN"
+          Write-Host "AUDIO ANTES DE LA INSTALACION"
           Write-Host "=========================================="
 
           $devices = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
@@ -65,7 +65,10 @@ jobs:
           if ($devices) {
 
               Write-Host "Se encontraron dispositivos de sonido:"
-              $devices | Select-Object Name, Status, PNPDeviceID | Format-List
+
+              $devices |
+                Select-Object Name, Status, PNPDeviceID |
+                Format-List
 
           }
           else {
@@ -76,26 +79,27 @@ jobs:
 
 
       # ============================================================
-      # 3. DESCARGAR E INSTALAR SCREAM
+      # 3. DESCARGAR SCREAM
       # ============================================================
 
-      - name: Instalar dispositivo de audio virtual Scream
-        shell: powershell
+      - name: Descargar Scream
+        shell: pwsh
         run: |
-
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "INSTALANDO SCREAM"
+          Write-Host "DESCARGANDO SCREAM"
           Write-Host "=========================================="
 
           $zip = "C:\Scream3.6.zip"
           $folder = "C:\Scream"
 
           if (Test-Path $folder) {
-              Remove-Item $folder -Recurse -Force -ErrorAction SilentlyContinue
+              Remove-Item $folder -Recurse -Force
           }
 
-          Write-Host "Descargando Scream..."
+          if (Test-Path $zip) {
+              Remove-Item $zip -Force
+          }
 
           Invoke-WebRequest `
             -Uri "https://github.com/duncanthrax/scream/releases/download/3.6/Scream3.6.zip" `
@@ -103,7 +107,11 @@ jobs:
 
           Write-Host "Descarga completada."
 
-          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          New-Item `
+            -ItemType Directory `
+            -Path $folder `
+            -Force |
+            Out-Null
 
           Write-Host "Extrayendo Scream..."
 
@@ -112,40 +120,81 @@ jobs:
             -DestinationPath $folder `
             -Force
 
-          Write-Host "Extracción completada."
+          Write-Host "Extraccion completada."
 
 
-          # ----------------------------------------------------------
-          # INSTALAR CERTIFICADO DEL DRIVER
-          # ----------------------------------------------------------
+      # ============================================================
+      # 4. COMPROBAR ARCHIVOS DE SCREAM
+      # ============================================================
 
-          $driver = Get-ChildItem `
-            -Path $folder `
-            -Filter "Scream.sys" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+      - name: Comprobar archivos de Scream
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "COMPROBANDO ARCHIVOS DE SCREAM"
+          Write-Host "=========================================="
 
-          if (-not $driver) {
+          $driver = "C:\Scream\Install\driver\Scream.sys"
+          $inf = "C:\Scream\Install\driver\Scream.inf"
+          $devcon = "C:\Scream\Install\helpers\devcon.exe"
 
-              Write-Host " No se encontró Scream.sys"
+          Write-Host ""
+          Write-Host "Driver:"
+          Write-Host $driver
+
+          if (-not (Test-Path $driver)) {
+              Write-Host "No se encontro Scream.sys"
               exit 1
-
           }
 
-          Write-Host "Driver encontrado:"
-          Write-Host $driver.FullName
+          Write-Host "Scream.sys encontrado."
+
+          Write-Host ""
+          Write-Host "INF:"
+          Write-Host $inf
+
+          if (-not (Test-Path $inf)) {
+              Write-Host "No se encontro Scream.inf"
+              exit 1
+          }
+
+          Write-Host "Scream.inf encontrado."
+
+          Write-Host ""
+          Write-Host "Devcon:"
+          Write-Host $devcon
+
+          if (-not (Test-Path $devcon)) {
+              Write-Host "No se encontro devcon.exe"
+              exit 1
+          }
+
+          Write-Host "devcon.exe encontrado."
 
 
-          $signature = Get-AuthenticodeSignature $driver.FullName
+      # ============================================================
+      # 5. INSTALAR CERTIFICADO
+      # ============================================================
+
+      - name: Instalar certificado de Scream
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "INSTALANDO CERTIFICADO"
+          Write-Host "=========================================="
+
+          $driver = "C:\Scream\Install\driver\Scream.sys"
+
+          $signature = Get-AuthenticodeSignature $driver
 
           Write-Host "Estado de firma:"
           Write-Host $signature.Status
 
-
           if ($signature.SignerCertificate) {
 
-              Write-Host "Instalando certificado..."
+              Write-Host "Certificado encontrado."
 
               $store = New-Object `
                 System.Security.Cryptography.X509Certificates.X509Store(
@@ -164,76 +213,43 @@ jobs:
           }
           else {
 
-              Write-Host " No se encontró certificado del driver."
+              Write-Host "No se encontro certificado."
 
           }
-
-
-          # ----------------------------------------------------------
-          # BUSCAR DEVCON
-          # ----------------------------------------------------------
-
-          $devcon = Get-ChildItem `
-            -Path $folder `
-            -Filter "devcon.exe" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-
-          if (-not $devcon) {
-
-              Write-Host "No se encontró devcon.exe"
-              exit 1
-
-          }
-
-          Write-Host "Devcon encontrado:"
-          Write-Host $devcon.FullName
-
-
-          # ----------------------------------------------------------
-          # BUSCAR Scream.inf
-          # ----------------------------------------------------------
-
-          $inf = Get-ChildItem `
-            -Path $folder `
-            -Filter "Scream.inf" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-
-          if (-not $inf) {
-
-              Write-Host "No se encontró Scream.inf"
-              exit 1
-
-          }
-
-          Write-Host "INF encontrado:"
-          Write-Host $inf.FullName
-
-
-          # ----------------------------------------------------------
-          # INSTALAR DISPOSITIVO
-          # ----------------------------------------------------------
-
-          Write-Host ""
-          Write-Host "Instalando dispositivo Scream..."
-
-          & $devcon.FullName install $inf.FullName "*Scream"
-
-          Write-Host ""
-          Write-Host "Instalación de Scream terminada."
 
 
       # ============================================================
-      # 4. REINICIAR SERVICIOS DE AUDIO
+      # 6. INSTALAR DISPOSITIVO SCREAM
+      # ============================================================
+
+      - name: Instalar dispositivo Scream
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "INSTALANDO DISPOSITIVO SCREAM"
+          Write-Host "=========================================="
+
+          $inf = "C:\Scream\Install\driver\Scream.inf"
+          $devcon = "C:\Scream\Install\helpers\devcon.exe"
+
+          Write-Host "Ejecutando Devcon..."
+
+          & $devcon install $inf "*Scream"
+
+          Write-Host ""
+          Write-Host "Comando de instalacion terminado."
+
+          Start-Sleep -Seconds 5
+
+
+      # ============================================================
+      # 7. REINICIAR AUDIO
       # ============================================================
 
       - name: Reiniciar servicios de audio
-        shell: powershell
+        shell: pwsh
         run: |
-
           Write-Host ""
           Write-Host "=========================================="
           Write-Host "REINICIANDO AUDIO"
@@ -257,23 +273,25 @@ jobs:
 
 
       # ============================================================
-      # 5. COMPROBACIÓN AUTOMÁTICA
+      # 8. COMPROBACION FINAL
       # ============================================================
 
       - name: Comprobar dispositivo de audio
-        shell: powershell
+        shell: pwsh
         run: |
-
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "COMPROBACIÓN FINAL DE AUDIO"
+          Write-Host "COMPROBACION FINAL DE AUDIO"
           Write-Host "=========================================="
 
+          Start-Sleep -Seconds 5
+
           Write-Host ""
-          Write-Host "Dispositivos Win32_SoundDevice:"
+          Write-Host "DISPOSITIVOS DE AUDIO:"
           Write-Host "------------------------------------------"
 
-          $devices = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
+          $devices = Get-CimInstance Win32_SoundDevice `
+            -ErrorAction SilentlyContinue
 
           if ($devices) {
 
@@ -284,27 +302,24 @@ jobs:
           }
           else {
 
-              Write-Host " No hay dispositivos Win32_SoundDevice."
+              Write-Host "NO HAY DISPOSITIVOS DE AUDIO."
 
           }
 
-
           Write-Host ""
-          Write-Host "Buscando Scream..."
+          Write-Host "BUSCANDO SCREAM:"
           Write-Host "------------------------------------------"
 
-          $scream = Get-CimInstance Win32_SoundDevice `
-            -ErrorAction SilentlyContinue |
+          $scream = $devices |
             Where-Object {
               $_.Name -match "Scream"
             }
-
 
           if ($scream) {
 
               Write-Host ""
               Write-Host "=========================================="
-              Write-Host " AUDIO VIRTUAL DETECTADO"
+              Write-Host "AUDIO VIRTUAL DETECTADO"
               Write-Host "=========================================="
 
               $scream |
@@ -319,14 +334,10 @@ jobs:
               Write-Host "SCREAM NO FUE DETECTADO"
               Write-Host "=========================================="
 
-              Write-Host ""
-              Write-Host "El runner no tiene un dispositivo Scream visible."
-
           }
 
-
           Write-Host ""
-          Write-Host "Servicios de audio:"
+          Write-Host "SERVICIOS DE AUDIO:"
           Write-Host "------------------------------------------"
 
           Get-Service `
@@ -337,13 +348,12 @@ jobs:
 
 
       # ============================================================
-      # 6. DESCARGAR COMPONENTES DEL USUARIO
+      # 9. DESCARGAR COMPONENTES DEL USUARIO
       # ============================================================
 
       - name: Descargar e instalar componentes esenciales
-        shell: powershell
+        shell: pwsh
         run: |
-
           Write-Host ""
           Write-Host "=========================================="
           Write-Host "DESCARGANDO COMPONENTES"
@@ -357,12 +367,12 @@ jobs:
 
 
       # ============================================================
-      # 7. INICIAR ANYDESK OPCIONAL
+      # 10. INICIAR ANYDESK
       # ============================================================
 
       - name: Iniciar AnyDesk (opcional)
         continue-on-error: true
-        shell: powershell
+        shell: pwsh
         run: |
 
           if (Test-Path "start.bat") {
@@ -375,18 +385,18 @@ jobs:
           }
           else {
 
-              Write-Host "AnyDesk no está configurado."
+              Write-Host "AnyDesk no esta configurado."
               Write-Host "Continuando sin AnyDesk."
 
           }
 
 
       # ============================================================
-      # 8. MANTENER LA PC ACTIVA
+      # 11. MANTENER LA PC ACTIVA
       # ============================================================
 
       - name: Mantener la PC virtual activa
-        shell: powershell
+        shell: pwsh
         run: |
 
           Write-Host ""
@@ -407,62 +417,44 @@ jobs:
               Write-Host "Estado: $(Get-Date)"
               Write-Host "------------------------------------------"
 
-
-              # Comprobar Scream
-
               $anyAudio = Get-CimInstance Win32_SoundDevice `
                 -ErrorAction SilentlyContinue |
                 Where-Object {
                   $_.Name -match "Scream"
                 }
 
-
               if ($anyAudio) {
-
                   Write-Host "Scream: DETECTADO"
-
               }
               else {
-
                   Write-Host "Scream: NO DETECTADO"
-
               }
-
-
-              # Comprobar AnyDesk
 
               $anydesk = Get-Process `
                 -Name "AnyDesk" `
                 -ErrorAction SilentlyContinue
 
-
               if ($anydesk) {
-
-                  Write-Host "AnyDesk: EJECUTÁNDOSE"
-
+                  Write-Host "AnyDesk: EJECUTANDOSE"
               }
               else {
-
-                  Write-Host "AnyDesk: NO EJECUTÁNDOSE"
-
+                  Write-Host "AnyDesk: NO EJECUTANDOSE"
               }
-
 
               Start-Sleep -Seconds 300
           }
 
-
           Write-Host ""
-          Write-Host "Tiempo máximo alcanzado."
+          Write-Host "Tiempo maximo alcanzado."
 
 
       # ============================================================
-      # 9. LIMPIEZA
+      # 12. LIMPIEZA
       # ============================================================
 
       - name: Limpiar archivos temporales
         if: always()
-        shell: powershell
+        shell: pwsh
         run: |
 
           if (Test-Path "Downloads.bat") {
