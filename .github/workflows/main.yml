@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Iniciando construccion
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 10080
 
     steps:
