@@ -9,12 +9,12 @@ jobs:
     timeout-minutes: 360
 
     steps:
+
       - name: Preparar Windows
         shell: pwsh
         run: |
-          Write-Host ""
           Write-Host "========================================"
-          Write-Host "        WINDOWS CLOUD PC"
+          Write-Host "       WINDOWS CLOUD PC"
           Write-Host "========================================"
 
           $theme = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
@@ -23,41 +23,29 @@ jobs:
           Set-ItemProperty -Path $theme -Name "AppsUseLightTheme" -Value 0
           Set-ItemProperty -Path $theme -Name "SystemUsesLightTheme" -Value 0
 
-          Write-Host "[OK] Tema oscuro activado."
+          Write-Host "[OK] Windows configurado en modo oscuro."
 
       - name: Descargar UltraVNC
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "[1/4] Descargando UltraVNC..."
+          Write-Host "[1/3] Descargando UltraVNC..."
 
           $zip = "$env:TEMP\UltraVNC.zip"
 
-          Invoke-WebRequest `
-            -Uri "https://uvnc.eu/download/1800/UltraVNC_1830.zip" `
-            -OutFile $zip
+          Invoke-WebRequest -Uri "https://uvnc.eu/download/1800/UltraVNC_1830.zip" -OutFile $zip
 
           New-Item -ItemType Directory -Path "C:\UltraVNC" -Force | Out-Null
 
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath "C:\UltraVNC" `
-            -Force
+          Expand-Archive -Path $zip -DestinationPath "C:\UltraVNC" -Force
 
           Write-Host "[OK] UltraVNC descargado."
 
-      - name: Configurar UltraVNC
+      - name: Configurar y ejecutar UltraVNC
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "[2/4] Configurando UltraVNC..."
+          Write-Host "[2/3] Buscando WinVNC..."
 
-          $vnc = Get-ChildItem `
-            -Path "C:\UltraVNC" `
-            -Filter "winvnc.exe" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+          $vnc = Get-ChildItem -Path "C:\UltraVNC" -Filter "winvnc.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 
           if ($null -eq $vnc) {
             throw "No se encontró winvnc.exe"
@@ -66,10 +54,10 @@ jobs:
           $dir = $vnc.DirectoryName
           $ini = Join-Path $dir "ultravnc.ini"
 
-          Write-Host "[OK] WinVNC encontrado:"
+          Write-Host "[OK] WinVNC encontrado."
           Write-Host $vnc.FullName
 
-          @"
+          $config = @"
 [ultravnc]
 SocketConnect=1
 HTTPConnect=1
@@ -79,124 +67,45 @@ AutoPortSelect=0
 InputsEnabled=1
 AllowLoopback=1
 LoopbackOnly=0
-"@ | Set-Content -Path $ini -Encoding ASCII
+"@
+
+          Set-Content -Path $ini -Value $config -Encoding ASCII
 
           Write-Host "[OK] Puerto VNC: 5900"
           Write-Host "[OK] Puerto web: 5800"
 
-          $passwordZip = "$env:TEMP\createpassword.zip"
-          $passwordDir = "$env:TEMP\createpassword"
-
-          Write-Host "[...] Configurando contraseña..."
-
-          Invoke-WebRequest `
-            -Uri "https://uvnc.eu/download/133/createpassword.zip" `
-            -OutFile $passwordZip
-
-          New-Item -ItemType Directory -Path $passwordDir -Force | Out-Null
-
-          Expand-Archive `
-            -Path $passwordZip `
-            -DestinationPath $passwordDir `
-            -Force
-
-          $cp = Get-ChildItem `
-            -Path $passwordDir `
-            -Filter "createpassword64.exe" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-
-          if ($null -ne $cp) {
-            Push-Location $dir
-
-            & $cp.FullName secure 1
-            & $cp.FullName secure 12345678
-
-            Pop-Location
-
-            Write-Host "[OK] Contraseña configurada."
-          }
-          else {
-            Write-Host "[!] No se encontró createpassword64.exe."
-          }
-
           Write-Host "[...] Iniciando UltraVNC..."
 
-          Start-Process `
-            -FilePath $vnc.FullName `
-            -WorkingDirectory $dir
+          Start-Process -FilePath $vnc.FullName -WorkingDirectory $dir
 
           Start-Sleep -Seconds 5
 
-          Write-Host "[OK] UltraVNC iniciado."
+          $port = Test-NetConnection -ComputerName "127.0.0.1" -Port 5800 -WarningAction SilentlyContinue
 
-      - name: Comprobar UltraVNC
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "[3/4] Comprobando servidor web..."
-
-          $connected = $false
-
-          for ($i = 1; $i -le 15; $i++) {
-            $test = Test-NetConnection `
-              -ComputerName "127.0.0.1" `
-              -Port 5800 `
-              -WarningAction SilentlyContinue
-
-            if ($test.TcpTestSucceeded) {
-              $connected = $true
-              break
-            }
-
-            Write-Host "Esperando UltraVNC... $i/15"
-            Start-Sleep -Seconds 2
+          if (-not $port.TcpTestSucceeded) {
+            throw "UltraVNC no abrió el puerto 5800."
           }
 
-          if (-not $connected) {
-            throw "UltraVNC no está escuchando en el puerto 5800."
-          }
-
-          Write-Host "[OK] Puerto 5800 activo."
-
-          try {
-            $response = Invoke-WebRequest `
-              -Uri "http://127.0.0.1:5800/" `
-              -UseBasicParsing `
-              -TimeoutSec 10
-
-            Write-Host "[OK] Servidor HTTP responde."
-            Write-Host "[OK] HTTP $($response.StatusCode)"
-          }
-          catch {
-            Write-Host "[!] El puerto está abierto, pero HTTP no respondió."
-            Write-Host $_.Exception.Message
-          }
+          Write-Host "[OK] UltraVNC está escuchando en 5800."
 
       - name: Iniciar Cloudflare
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[4/4] Iniciando Cloudflare..."
+          Write-Host "[3/3] Iniciando Cloudflare..."
           Write-Host ""
           Write-Host "========================================"
           Write-Host "          CLOUD PC LISTO"
           Write-Host "========================================"
           Write-Host ""
-          Write-Host "La URL aparecerá debajo:"
+          Write-Host "TU URL APARECERÁ ABAJO:"
           Write-Host ""
 
           $cloudflared = "C:\cloudflared.exe"
 
-          Invoke-WebRequest `
-            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
-            -OutFile $cloudflared
+          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $cloudflared
 
           Write-Host "[OK] Cloudflared descargado."
           Write-Host ""
 
-          & $cloudflared tunnel `
-            --no-autoupdate `
-            --protocol http2 `
-            --url "http://127.0.0.1:5800"
+          & $cloudflared tunnel --no-autoupdate --protocol http2 --url "http://127.0.0.1:5800"
