@@ -1,200 +1,77 @@
-name: Windows Cloud PC - Audio + AnyDesk (Opcional)
+name: Windows Cloud PC - Scream + AnyDesk + noVNC
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Iniciando construccion
+    name: Windows Cloud PC
     runs-on: windows-2025
-    timeout-minutes: 10080
+
+    # GitHub-hosted runners no permiten 7 días.
+    # El máximo documentado para un job es 360 minutos.
+    timeout-minutes: 360
 
     steps:
 
       # ============================================================
-      # 1. INICIAR SERVICIOS DE AUDIO
+      # 1. AUDIO
       # ============================================================
-
       - name: Iniciar servicios de audio
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "INICIANDO SERVICIOS DE AUDIO"
+          Write-Host "INICIANDO AUDIO"
           Write-Host "=========================================="
 
-          $services = @(
-              "AudioEndpointBuilder",
-              "Audiosrv"
-          )
+          Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
+          Start-Service Audiosrv -ErrorAction SilentlyContinue
 
-          foreach ($service in $services) {
-
-              $svc = Get-Service -Name $service -ErrorAction SilentlyContinue
-
-              if ($svc) {
-
-                  Write-Host "Servicio encontrado: $service"
-
-                  if ($svc.Status -ne "Running") {
-                      Start-Service -Name $service -ErrorAction SilentlyContinue
-                      Start-Sleep -Seconds 2
-                  }
-
-                  Write-Host "$service -> $((Get-Service $service).Status)"
-              }
-              else {
-                  Write-Host "No se encontro: $service"
-              }
-          }
-
+          Get-Service AudioEndpointBuilder,Audiosrv |
+            Format-Table Name,Status,StartType
 
       # ============================================================
-      # 2. COMPROBAR AUDIO INICIAL
+      # 2. DESCARGAR SCREAM
       # ============================================================
-
-      - name: Comprobar dispositivos de audio iniciales
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "AUDIO ANTES DE LA INSTALACION"
-          Write-Host "=========================================="
-
-          $devices = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
-
-          if ($devices) {
-
-              Write-Host "Se encontraron dispositivos de sonido:"
-
-              $devices |
-                Select-Object Name, Status, PNPDeviceID |
-                Format-List
-
-          }
-          else {
-
-              Write-Host "NO SE DETECTARON DISPOSITIVOS DE SONIDO."
-
-          }
-
-
-      # ============================================================
-      # 3. DESCARGAR SCREAM
-      # ============================================================
-
       - name: Descargar Scream
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "DESCARGANDO SCREAM"
-          Write-Host "=========================================="
-
+          $url = "https://github.com/duncanthrax/scream/releases/download/3.6/Scream3.6.zip"
           $zip = "C:\Scream3.6.zip"
-          $folder = "C:\Scream"
+          $dir = "C:\Scream"
 
-          if (Test-Path $folder) {
-              Remove-Item $folder -Recurse -Force
-          }
-
-          if (Test-Path $zip) {
-              Remove-Item $zip -Force
+          if (Test-Path $dir) {
+              Remove-Item $dir -Recurse -Force
           }
 
           Invoke-WebRequest `
-            -Uri "https://github.com/duncanthrax/scream/releases/download/3.6/Scream3.6.zip" `
+            -Uri $url `
             -OutFile $zip
-
-          Write-Host "Descarga completada."
-
-          New-Item `
-            -ItemType Directory `
-            -Path $folder `
-            -Force |
-            Out-Null
-
-          Write-Host "Extrayendo Scream..."
 
           Expand-Archive `
             -Path $zip `
-            -DestinationPath $folder `
+            -DestinationPath $dir `
             -Force
 
-          Write-Host "Extraccion completada."
-
+          Write-Host "Scream descargado."
 
       # ============================================================
-      # 4. COMPROBAR ARCHIVOS DE SCREAM
+      # 3. INSTALAR CERTIFICADO SCREAM
       # ============================================================
-
-      - name: Comprobar archivos de Scream
+      - name: Instalar certificado Scream
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "COMPROBANDO ARCHIVOS DE SCREAM"
-          Write-Host "=========================================="
+          $sys = "C:\Scream\Install\driver\Scream.sys"
 
-          $driver = "C:\Scream\Install\driver\Scream.sys"
-          $inf = "C:\Scream\Install\driver\Scream.inf"
-          $devcon = "C:\Scream\Install\helpers\devcon.exe"
-
-          Write-Host ""
-          Write-Host "Driver:"
-          Write-Host $driver
-
-          if (-not (Test-Path $driver)) {
-              Write-Host "No se encontro Scream.sys"
+          if (-not (Test-Path $sys)) {
+              Write-Host "No se encontró Scream.sys"
               exit 1
           }
 
-          Write-Host "Scream.sys encontrado."
-
-          Write-Host ""
-          Write-Host "INF:"
-          Write-Host $inf
-
-          if (-not (Test-Path $inf)) {
-              Write-Host "No se encontro Scream.inf"
-              exit 1
-          }
-
-          Write-Host "Scream.inf encontrado."
-
-          Write-Host ""
-          Write-Host "Devcon:"
-          Write-Host $devcon
-
-          if (-not (Test-Path $devcon)) {
-              Write-Host "No se encontro devcon.exe"
-              exit 1
-          }
-
-          Write-Host "devcon.exe encontrado."
-
-
-      # ============================================================
-      # 5. INSTALAR CERTIFICADO
-      # ============================================================
-
-      - name: Instalar certificado de Scream
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "INSTALANDO CERTIFICADO"
-          Write-Host "=========================================="
-
-          $driver = "C:\Scream\Install\driver\Scream.sys"
-
-          $signature = Get-AuthenticodeSignature $driver
-
-          Write-Host "Estado de firma:"
-          Write-Host $signature.Status
+          $signature = Get-AuthenticodeSignature $sys
 
           if ($signature.SignerCertificate) {
-
-              Write-Host "Certificado encontrado."
+              $cert = $signature.SignerCertificate
 
               $store = New-Object `
                 System.Security.Cryptography.X509Certificates.X509Store(
@@ -202,277 +79,408 @@ jobs:
                   "LocalMachine"
                 )
 
-              $store.Open("ReadWrite")
+              $store.Open(
+                [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+              )
 
-              $store.Add($signature.SignerCertificate)
-
+              $store.Add($cert)
               $store.Close()
 
               Write-Host "Certificado instalado."
-
-          }
-          else {
-
-              Write-Host "No se encontro certificado."
-
           }
 
-
       # ============================================================
-      # 6. INSTALAR DISPOSITIVO SCREAM
+      # 4. INSTALAR DRIVER SCREAM
       # ============================================================
-
-      - name: Instalar dispositivo Scream
+      - name: Instalar Scream
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "INSTALANDO DISPOSITIVO SCREAM"
-          Write-Host "=========================================="
-
           $inf = "C:\Scream\Install\driver\Scream.inf"
           $devcon = "C:\Scream\Install\helpers\devcon.exe"
 
-          Write-Host "Ejecutando Devcon..."
+          if (-not (Test-Path $inf)) {
+              Write-Host "No se encontró Scream.inf"
+              exit 1
+          }
+
+          if (-not (Test-Path $devcon)) {
+              Write-Host "No se encontró devcon.exe"
+              exit 1
+          }
 
           & $devcon install $inf "*Scream"
 
-          Write-Host ""
-          Write-Host "Comando de instalacion terminado."
-
-          Start-Sleep -Seconds 5
-
+          Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
+          Start-Service Audiosrv -ErrorAction SilentlyContinue
 
       # ============================================================
-      # 7. REINICIAR AUDIO
+      # 5. COMPROBAR AUDIO
       # ============================================================
-
-      - name: Reiniciar servicios de audio
+      - name: Comprobar audio
         shell: pwsh
         run: |
-          Write-Host ""
           Write-Host "=========================================="
-          Write-Host "REINICIANDO AUDIO"
-          Write-Host "=========================================="
-
-          Restart-Service `
-            -Name "AudioEndpointBuilder" `
-            -Force `
-            -ErrorAction SilentlyContinue
-
-          Start-Sleep -Seconds 3
-
-          Restart-Service `
-            -Name "Audiosrv" `
-            -Force `
-            -ErrorAction SilentlyContinue
-
-          Start-Sleep -Seconds 5
-
-          Write-Host "Servicios de audio reiniciados."
-
-
-      # ============================================================
-      # 8. COMPROBACION FINAL
-      # ============================================================
-
-      - name: Comprobar dispositivo de audio
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "COMPROBACION FINAL DE AUDIO"
+          Write-Host "DISPOSITIVOS DE AUDIO"
           Write-Host "=========================================="
 
-          Start-Sleep -Seconds 5
-
-          Write-Host ""
-          Write-Host "DISPOSITIVOS DE AUDIO:"
-          Write-Host "------------------------------------------"
-
-          $devices = Get-CimInstance Win32_SoundDevice `
-            -ErrorAction SilentlyContinue
-
-          if ($devices) {
-
-              $devices |
-                Select-Object Name, Status, Manufacturer, PNPDeviceID |
-                Format-List
-
-          }
-          else {
-
-              Write-Host "NO HAY DISPOSITIVOS DE AUDIO."
-
-          }
-
-          Write-Host ""
-          Write-Host "BUSCANDO SCREAM:"
-          Write-Host "------------------------------------------"
-
-          $scream = $devices |
-            Where-Object {
-              $_.Name -match "Scream"
-            }
-
-          if ($scream) {
-
-              Write-Host ""
-              Write-Host "=========================================="
-              Write-Host "AUDIO VIRTUAL DETECTADO"
-              Write-Host "=========================================="
-
-              $scream |
-                Select-Object Name, Status, Manufacturer |
-                Format-List
-
-          }
-          else {
-
-              Write-Host ""
-              Write-Host "=========================================="
-              Write-Host "SCREAM NO FUE DETECTADO"
-              Write-Host "=========================================="
-
-          }
-
-          Write-Host ""
-          Write-Host "SERVICIOS DE AUDIO:"
-          Write-Host "------------------------------------------"
-
-          Get-Service `
-            -Name "AudioEndpointBuilder","Audiosrv" `
-            -ErrorAction SilentlyContinue |
-            Select-Object Name, Status |
+          Get-CimInstance Win32_SoundDevice |
+            Select-Object Name,Status,Manufacturer |
             Format-Table -AutoSize
 
-
       # ============================================================
-      # 9. DESCARGAR COMPONENTES DEL USUARIO
+      # 6. DESCARGAR ULTRAVNC SERVER
       # ============================================================
-
-      - name: Descargar e instalar componentes esenciales
+      - name: Instalar UltraVNC Server
         shell: pwsh
         run: |
-          Write-Host ""
           Write-Host "=========================================="
-          Write-Host "DESCARGANDO COMPONENTES"
+          Write-Host "INSTALANDO ULTRAVNC SERVER"
           Write-Host "=========================================="
+
+          $zip = "C:\UltraVNC.zip"
+          $dir = "C:\UltraVNC"
+
+          if (Test-Path $dir) {
+              Remove-Item $dir -Recurse -Force
+          }
 
           Invoke-WebRequest `
-            -Uri "https://www.dropbox.com/scl/fi/dr310yfyg0ti6mwano3fv/Downloads.bat?rlkey=a2wbeiel73ra5i0nsdd6ud9qr&st=r26jd007&dl=1" `
-            -OutFile "Downloads.bat"
+            -Uri "https://uvnc.eu/download/1800/UltraVNC_1824.zip" `
+            -OutFile $zip
 
-          cmd /c Downloads.bat
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $dir `
+            -Force
 
+          $winvnc = Get-ChildItem `
+            -Path $dir `
+            -Filter "winvnc.exe" `
+            -Recurse |
+            Select-Object -First 1
 
-      # ============================================================
-      # 10. INICIAR ANYDESK
-      # ============================================================
-
-      - name: Iniciar AnyDesk (opcional)
-        continue-on-error: true
-        shell: pwsh
-        run: |
-
-          if (Test-Path "start.bat") {
-
-              Write-Host "start.bat encontrado."
-              Write-Host "Intentando iniciar AnyDesk..."
-
-              cmd /c start.bat
-
-          }
-          else {
-
-              Write-Host "AnyDesk no esta configurado."
-              Write-Host "Continuando sin AnyDesk."
-
+          if (-not $winvnc) {
+              Write-Host "ERROR: winvnc.exe no encontrado."
+              exit 1
           }
 
+          Write-Host "UltraVNC encontrado:"
+          Write-Host $winvnc.FullName
+
+          "UVNC_PATH=$($winvnc.DirectoryName)" |
+            Out-File $env:GITHUB_ENV -Append
 
       # ============================================================
-      # 11. MANTENER LA PC ACTIVA
+      # 7. CONFIGURAR ULTRAVNC
       # ============================================================
-
-      - name: Mantener la PC virtual activa
+      - name: Configurar UltraVNC
         shell: pwsh
         run: |
+          Write-Host "=========================================="
+          Write-Host "CONFIGURANDO ULTRAVNC"
+          Write-Host "=========================================="
+
+          $dir = $env:UVNC_PATH
+
+          # Archivo portable para que UltraVNC use
+          # ultravnc.ini junto a winvnc.exe.
+          New-Item `
+            -ItemType File `
+            -Path "$dir\ultravnc.portable" `
+            -Force | Out-Null
+
+          $ini = @"
+          [admin]
+          MSLogonRequired=0
+          NewMSLogon=0
+          UseRegistry=0
+          AuthRequired=1
+          AllowLoopback=1
+          LoopbackOnly=0
+          SocketConnect=1
+          HTTPConnect=0
+          AutoPortSelect=0
+          PortNumber=5900
+          InputsEnabled=1
+          DisableTrayIcon=1
+          RemoveWallpaper=0
+          RemoveAero=0
+          QuerySetting=0
+          QueryAccept=0
+          FileTransferEnabled=0
+          IdleTimeout=0
+
+          [ultravnc]
+          passwd=
+          passwd2=
+
+          [poll]
+          TurboMode=1
+          PollUnderCursor=0
+          PollForeground=1
+          PollFullScreen=1
+          OnlyPollConsole=0
+          OnlyPollOnEvent=0
+          EnableDriver=0
+          EnableHook=1
+          EnableVirtual=0
+          "@
+
+          $ini | Out-File `
+            -FilePath "$dir\ultravnc.ini" `
+            -Encoding ascii
+
+          Write-Host "Configuración creada."
+
+      # ============================================================
+      # 8. INICIAR ULTRAVNC
+      # ============================================================
+      - name: Iniciar UltraVNC
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "INICIANDO SERVIDOR VNC"
+          Write-Host "=========================================="
+
+          $winvnc = Join-Path $env:UVNC_PATH "winvnc.exe"
+
+          if (-not (Test-Path $winvnc)) {
+              Write-Host "ERROR: winvnc.exe no encontrado."
+              exit 1
+          }
+
+          Start-Process `
+            -FilePath $winvnc `
+            -WorkingDirectory $env:UVNC_PATH
+
+          Start-Sleep -Seconds 5
+
+          Get-Process winvnc -ErrorAction SilentlyContinue |
+            Format-Table Id,ProcessName,Path
+
+          Write-Host ""
+          Write-Host "Comprobando puerto 5900..."
+
+          Get-NetTCPConnection `
+            -LocalPort 5900 `
+            -ErrorAction SilentlyContinue |
+            Format-Table LocalAddress,LocalPort,State
+
+      # ============================================================
+      # 9. DESCARGAR NOVNC
+      # ============================================================
+      - name: Instalar noVNC
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "INSTALANDO NOVNC"
+          Write-Host "=========================================="
+
+          $dir = "C:\noVNC"
+
+          if (Test-Path $dir) {
+              Remove-Item $dir -Recurse -Force
+          }
+
+          git clone --depth 1 `
+            https://github.com/novnc/noVNC.git `
+            $dir
+
+          if (-not (Test-Path "$dir\vnc.html")) {
+              Write-Host "ERROR: noVNC no se descargó correctamente."
+              exit 1
+          }
+
+          Write-Host "noVNC instalado."
+
+      # ============================================================
+      # 10. INSTALAR WEBSOCKIFY
+      # ============================================================
+      - name: Instalar websockify
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "INSTALANDO WEBSOCKIFY"
+          Write-Host "=========================================="
+
+          python -m pip install --upgrade websockify
+
+          $scripts = python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+
+          Write-Host "Python Scripts:"
+          Write-Host $scripts
+
+          $exe = Join-Path $scripts "websockify.exe"
+
+          if (-not (Test-Path $exe)) {
+              Write-Host "ERROR: websockify.exe no encontrado."
+              exit 1
+          }
+
+          "WEBSOCKIFY=$exe" |
+            Out-File $env:GITHUB_ENV -Append
+
+      # ============================================================
+      # 11. INICIAR NOVNC + WEBSOCKIFY
+      # ============================================================
+      - name: Iniciar noVNC
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "INICIANDO NOVNC"
+          Write-Host "=========================================="
+
+          $log = "C:\noVNC\websockify.log"
+
+          $arguments = @(
+            "6080",
+            "localhost:5900",
+            "--web",
+            "C:\noVNC"
+          )
+
+          Start-Process `
+            -FilePath $env:WEBSOCKIFY `
+            -ArgumentList $arguments `
+            -RedirectStandardOutput $log `
+            -RedirectStandardError $log `
+            -WindowStyle Hidden
+
+          Start-Sleep -Seconds 5
+
+          if (-not (Get-NetTCPConnection `
+              -LocalPort 6080 `
+              -ErrorAction SilentlyContinue)) {
+
+              Write-Host "ERROR: noVNC/websockify no abrió el puerto 6080."
+
+              if (Test-Path $log) {
+                  Get-Content $log
+              }
+
+              exit 1
+          }
+
+          Write-Host "noVNC está funcionando en el puerto 6080."
+
+      # ============================================================
+      # 12. CLOUDFLARE QUICK TUNNEL
+      # ============================================================
+      - name: Crear URL pública de noVNC
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "CREANDO URL PUBLICA"
+          Write-Host "=========================================="
+
+          $cf = "C:\cloudflared.exe"
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
+            -OutFile $cf
+
+          Write-Host "Iniciando Cloudflare Tunnel..."
+
+          $log = "C:\cloudflared.log"
+
+          Start-Process `
+            -FilePath $cf `
+            -ArgumentList "tunnel --url http://localhost:6080" `
+            -RedirectStandardOutput $log `
+            -RedirectStandardError $log `
+            -WindowStyle Hidden
+
+          $url = $null
+
+          for ($i = 0; $i -lt 30; $i++) {
+
+              Start-Sleep -Seconds 2
+
+              if (Test-Path $log) {
+                  $text = Get-Content $log -Raw
+
+                  $match = [regex]::Match(
+                    $text,
+                    'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
+                  )
+
+                  if ($match.Success) {
+                      $url = $match.Value
+                      break
+                  }
+              }
+          }
+
+          if (-not $url) {
+              Write-Host "ERROR: no se pudo obtener la URL."
+              if (Test-Path $log) {
+                  Get-Content $log
+              }
+              exit 1
+          }
 
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "PC VIRTUAL ACTIVA"
+          Write-Host "      TU WINDOWS ESTA DISPONIBLE"
+          Write-Host "=========================================="
+          Write-Host ""
+          Write-Host "$url/vnc.html"
+          Write-Host ""
+          Write-Host "Abre esa dirección en Chrome."
+          Write-Host ""
           Write-Host "=========================================="
 
-          Write-Host "Audio virtual configurado."
-          Write-Host "AnyDesk es opcional."
-          Write-Host "Chrome Remote Desktop puede utilizar el audio disponible."
-
-          $endTime = (Get-Date).AddDays(7)
-
-          while ((Get-Date) -lt $endTime) {
-
-              Write-Host ""
-              Write-Host "------------------------------------------"
-              Write-Host "Estado: $(Get-Date)"
-              Write-Host "------------------------------------------"
-
-              $anyAudio = Get-CimInstance Win32_SoundDevice `
-                -ErrorAction SilentlyContinue |
-                Where-Object {
-                  $_.Name -match "Scream"
-                }
-
-              if ($anyAudio) {
-                  Write-Host "Scream: DETECTADO"
-              }
-              else {
-                  Write-Host "Scream: NO DETECTADO"
-              }
-
-              $anydesk = Get-Process `
-                -Name "AnyDesk" `
-                -ErrorAction SilentlyContinue
-
-              if ($anydesk) {
-                  Write-Host "AnyDesk: EJECUTANDOSE"
-              }
-              else {
-                  Write-Host "AnyDesk: NO EJECUTANDOSE"
-              }
-
-              Start-Sleep -Seconds 300
-          }
-
-          Write-Host ""
-          Write-Host "Tiempo maximo alcanzado."
-
+          "NOVNC_URL=$url/vnc.html" |
+            Out-File $env:GITHUB_ENV -Append
 
       # ============================================================
-      # 12. LIMPIEZA
+      # 13. COMPROBACIÓN FINAL
       # ============================================================
-
-      - name: Limpiar archivos temporales
-        if: always()
+      - name: Comprobación final
         shell: pwsh
         run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "        WINDOWS CLOUD PC LISTO"
+          Write-Host "=========================================="
+          Write-Host ""
+          Write-Host "URL:"
+          Write-Host $env:NOVNC_URL
+          Write-Host ""
+          Write-Host "Procesos:"
+          Get-Process winvnc,python,cloudflared `
+            -ErrorAction SilentlyContinue |
+            Format-Table Id,ProcessName
+          Write-Host ""
+          Write-Host "El job debe permanecer ejecutándose."
+          Write-Host "=========================================="
 
-          if (Test-Path "Downloads.bat") {
+      # ============================================================
+      # 14. MANTENER EL RUNNER
+      # ============================================================
+      - name: Mantener Cloud PC activo
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "WINDOWS CLOUD PC ACTIVO"
+          Write-Host "=========================================="
+          Write-Host "URL:"
+          Write-Host $env:NOVNC_URL
+          Write-Host ""
+          Write-Host "No cierres este workflow."
+          Write-Host "=========================================="
 
-              Remove-Item `
-                "Downloads.bat" `
-                -Force `
-                -ErrorAction SilentlyContinue
+          while ($true) {
+              Start-Sleep -Seconds 30
 
+              if (-not (Get-Process winvnc -ErrorAction SilentlyContinue)) {
+                  Write-Host "UltraVNC se cerró."
+                  exit 1
+              }
+
+              if (-not (Get-Process cloudflared -ErrorAction SilentlyContinue)) {
+                  Write-Host "Cloudflare Tunnel se cerró."
+                  exit 1
+              }
           }
-
-          if (Test-Path "C:\Scream3.6.zip") {
-
-              Remove-Item `
-                "C:\Scream3.6.zip" `
-                -Force `
-                -ErrorAction SilentlyContinue
-
-          }
-
-          Write-Host "Limpieza completada."
