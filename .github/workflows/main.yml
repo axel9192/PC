@@ -941,37 +941,15 @@ jobs:
           # Mostrar también en Summary de GitHub
           # --------------------------------------------------------
 
-          @"
+          
 
-          # 🖥️ Windows Cloud PC
-
-          ## noVNC
-
-          **Abrir desde el celular:**
-
-          $finalUrl
-
-          ## Contraseña VNC
-
-          \`$env:VNC_PASSWORD\`
-
-          ## Estado
-
-          - TightVNC: ✅
-          - Websockify: ✅
-          - noVNC: ✅
-          - Cloudflare Tunnel: ✅
-
-          "@ | Out-File `
-            -FilePath $env:GITHUB_STEP_SUMMARY `
-            -Encoding utf8 `
-            -Append
 
 
           # --------------------------------------------------------
           # Mantener el job vivo
           # --------------------------------------------------------
 
+          
           Write-Host ""
           Write-Host "Cloud PC activo."
           Write-Host "El runner permanecerá encendido hasta terminar el job."
