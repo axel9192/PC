@@ -14,14 +14,22 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "========================================"
-          Write-Host "        WINDOWS CLOUD PC"
+          Write-Host "       WINDOWS CLOUD PC"
           Write-Host "========================================"
 
           $theme = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 
           New-Item -Path $theme -Force | Out-Null
-          Set-ItemProperty -Path $theme -Name "AppsUseLightTheme" -Value 0
-          Set-ItemProperty -Path $theme -Name "SystemUsesLightTheme" -Value 0
+
+          Set-ItemProperty `
+            -Path $theme `
+            -Name "AppsUseLightTheme" `
+            -Value 0
+
+          Set-ItemProperty `
+            -Path $theme `
+            -Name "SystemUsesLightTheme" `
+            -Value 0
 
           Write-Host "[OK] Tema oscuro activado."
 
@@ -29,16 +37,30 @@ jobs:
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[1/4] Descargando TightVNC..."
+          Write-Host "[1/4] Descargando TightVNC 2.8.90..."
 
           $installer = "$env:TEMP\tightvnc.msi"
 
+          $url = "https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi"
+
           Invoke-WebRequest `
-            -Uri "https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-setup-64bit.msi" `
+            -Uri $url `
             -OutFile $installer
 
-          Write-Host "[OK] Instalador descargado."
+          if (!(Test-Path $installer)) {
+            throw "No se pudo descargar TightVNC."
+          }
 
+          $size = (Get-Item $installer).Length
+
+          Write-Host "[OK] Instalador descargado."
+          Write-Host "[OK] Tamaño: $size bytes"
+
+          if ($size -lt 1000000) {
+            throw "El archivo descargado parece incorrecto."
+          }
+
+          Write-Host ""
           Write-Host "[...] Instalando TightVNC..."
 
           $arguments = @(
@@ -46,10 +68,13 @@ jobs:
             "`"$installer`""
             "/quiet"
             "/norestart"
+
             "SET_USEVNCAUTHENTICATION=1"
             "VALUE_OF_USEVNCAUTHENTICATION=1"
+
             "SET_PASSWORD=1"
             "VALUE_OF_PASSWORD=12345678"
+
             "SET_VIEWONLYPASSWORD=1"
             "VALUE_OF_VIEWONLYPASSWORD=12345678"
           )
@@ -65,13 +90,13 @@ jobs:
           }
 
           Write-Host "[OK] TightVNC instalado."
-          Write-Host "[OK] Contraseña VNC: 12345678"
+          Write-Host "[OK] Contraseña VNC configurada."
 
       - name: Iniciar TightVNC
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[2/4] Iniciando TightVNC..."
+          Write-Host "[2/4] Iniciando servidor VNC..."
 
           $server = Get-ChildItem `
             -Path "C:\Program Files" `
@@ -84,10 +109,13 @@ jobs:
             throw "No se encontró tvnserver.exe."
           }
 
-          Write-Host "[OK] Servidor encontrado:"
+          Write-Host "[OK] Servidor:"
           Write-Host $server.FullName
 
-          & $server.FullName -start
+          Write-Host "[...] Instalando/iniciando servicio..."
+
+          & $server.FullName -install -silent 2>$null
+          & $server.FullName -start -silent
 
           Start-Sleep -Seconds 5
 
@@ -100,33 +128,28 @@ jobs:
             throw "TightVNC no está escuchando en el puerto 5900."
           }
 
-          Write-Host "[OK] TightVNC está activo en 5900."
+          Write-Host "[OK] TightVNC activo en 5900."
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Instalar noVNC y Websockify
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[3/4] Instalando noVNC + Websockify..."
+          Write-Host "[3/4] Preparando noVNC + Websockify..."
 
           $novncZip = "$env:TEMP\novnc.zip"
-          $websockifyZip = "$env:TEMP\websockify.zip"
 
           Invoke-WebRequest `
             -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
             -OutFile $novncZip
 
-          Invoke-WebRequest `
-            -Uri "https://github.com/novnc/websockify/archive/refs/tags/v0.13.0.zip" `
-            -OutFile $websockifyZip
-
           Expand-Archive `
             -Path $novncZip `
             -DestinationPath "C:\noVNC" `
-            -Force
-
-          Expand-Archive `
-            -Path $websockifyZip `
-            -DestinationPath "C:\Websockify" `
             -Force
 
           $novnc = Get-ChildItem `
@@ -134,23 +157,21 @@ jobs:
             -Directory |
             Select-Object -First 1
 
-          $websockify = Get-ChildItem `
-            -Path "C:\Websockify" `
-            -Directory |
-            Select-Object -First 1
-
           if ($null -eq $novnc) {
             throw "No se encontró noVNC."
           }
 
-          if ($null -eq $websockify) {
-            throw "No se encontró Websockify."
-          }
+          Write-Host "[OK] noVNC encontrado:"
+          Write-Host $novnc.FullName
 
-          Write-Host "[OK] noVNC encontrado."
-          Write-Host "[OK] Websockify encontrado."
+          Write-Host "[...] Instalando Websockify..."
 
-          Write-Host "[...] Iniciando Websockify..."
+          python -m pip install --upgrade pip
+          python -m pip install websockify==0.13.0
+
+          Write-Host "[OK] Websockify instalado."
+
+          Write-Host "[...] Iniciando puente VNC..."
 
           Start-Process `
             -FilePath "python" `
@@ -161,8 +182,7 @@ jobs:
               "127.0.0.1:5900"
               "--web"
               $novnc.FullName
-            ) `
-            -WorkingDirectory $websockify.FullName
+            )
 
           Start-Sleep -Seconds 5
 
@@ -172,23 +192,17 @@ jobs:
             -WarningAction SilentlyContinue
 
           if (-not $test.TcpTestSucceeded) {
-            throw "Websockify no abrió el puerto 6080."
+            throw "Websockify no está escuchando en 6080."
           }
 
-          Write-Host "[OK] noVNC funcionando en 6080."
+          Write-Host "[OK] noVNC/Websockify activo."
+          Write-Host "[OK] Puerto web: 6080"
 
       - name: Iniciar Cloudflare
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[4/4] Iniciando Cloudflare..."
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "          CLOUD PC LISTO"
-          Write-Host "========================================"
-          Write-Host ""
-          Write-Host "La URL aparecerá debajo:"
-          Write-Host ""
+          Write-Host "[4/4] Creando conexión pública..."
 
           $cloudflared = "C:\cloudflared.exe"
 
@@ -196,7 +210,24 @@ jobs:
             -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
             -OutFile $cloudflared
 
+          if (!(Test-Path $cloudflared)) {
+            throw "No se pudo descargar Cloudflared."
+          }
+
           Write-Host "[OK] Cloudflared descargado."
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "          CLOUD PC LISTO"
+          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "ESPERA A QUE APAREZCA LA URL:"
+          Write-Host ""
+          Write-Host "https://xxxxx.trycloudflare.com"
+          Write-Host ""
+          Write-Host "Luego abre:"
+          Write-Host "https://xxxxx.trycloudflare.com/vnc.html"
+          Write-Host ""
+          Write-Host "========================================"
           Write-Host ""
 
           & $cloudflared tunnel `
