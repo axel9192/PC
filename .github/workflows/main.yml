@@ -97,37 +97,120 @@ jobs:
       # 3. DESCARGAR SCREAM
       # ============================================================
 
-      - name: Descargar Scream
+            - name: Instalar Scream
         shell: pwsh
+        timeout-minutes: 5
         run: |
           $ErrorActionPreference = "Stop"
 
           Write-Host "=========================================="
-          Write-Host " DESCARGANDO SCREAM"
+          Write-Host " INSTALANDO SCREAM"
           Write-Host "=========================================="
 
-          $zip = "$env:RUNNER_TEMP\Scream4.0.zip"
-          $folder = "$env:RUNNER_TEMP\Scream"
+          $zip = "$env:RUNNER_TEMP\Scream3.8.zip"
+          $folder = "C:\Scream"
+
+          if (Test-Path $folder) {
+            Remove-Item $folder -Recurse -Force
+          }
+
+          Write-Host "Descargando Scream 3.8..."
 
           Invoke-WebRequest `
-            -Uri "https://github.com/duncanthrax/scream/releases/download/4.0/Scream4.0.zip" `
+            -Uri "https://github.com/duncanthrax/scream/releases/download/3.8/Scream3.8.zip" `
             -OutFile $zip `
             -UseBasicParsing
 
-          if (Test-Path $folder) {
-            Remove-Item `
-              $folder `
-              -Recurse `
-              -Force
-          }
+          Write-Host "Extrayendo..."
 
           Expand-Archive `
             -Path $zip `
             -DestinationPath $folder `
             -Force
 
-          Write-Host "Scream descargado."
+          $driverDir = "$folder\Install\driver\x64"
+          $inf = "$driverDir\Scream.inf"
+          $sys = "$driverDir\Scream.sys"
+          $cat = "$driverDir\Scream.cat"
 
+          if (!(Test-Path $inf)) {
+            throw "No se encontró Scream.inf."
+          }
+
+          if (!(Test-Path $sys)) {
+            throw "No se encontró Scream.sys."
+          }
+
+          if (!(Test-Path $cat)) {
+            throw "No se encontró Scream.cat."
+          }
+
+          Write-Host "Scream encontrado."
+
+          # --------------------------------------------------------
+          # Registrar el certificado del controlador
+          # --------------------------------------------------------
+
+          Write-Host "Registrando certificado..."
+
+          $signature = Get-AuthenticodeSignature $sys
+
+          if ($null -ne $signature.SignerCertificate) {
+
+            $cert = $signature.SignerCertificate
+
+            $store = New-Object `
+              System.Security.Cryptography.X509Certificates.X509Store(
+                "TrustedPublisher",
+                "LocalMachine"
+              )
+
+            $store.Open(
+              [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+            )
+
+            try {
+              $store.Add($cert)
+            }
+            finally {
+              $store.Close()
+            }
+
+            Write-Host "Certificado registrado."
+          }
+          else {
+            Write-Host "El controlador no proporciona certificado legible."
+          }
+
+          # --------------------------------------------------------
+          # Instalar mediante PnPUtil
+          # --------------------------------------------------------
+
+          Write-Host "Instalando controlador mediante PnPUtil..."
+
+          $p = Start-Process `
+            -FilePath "$env:SystemRoot\System32\pnputil.exe" `
+            -ArgumentList @(
+              "/add-driver",
+              $inf,
+              "/install"
+            ) `
+            -Wait `
+            -PassThru `
+            -NoNewWindow
+
+          Write-Host "PnPUtil terminó con código: $($p.ExitCode)"
+
+          if ($p.ExitCode -ne 0) {
+            throw "PnPUtil no pudo instalar Scream. Código: $($p.ExitCode)"
+          }
+
+          Start-Sleep -Seconds 3
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host " SCREAM INSTALADO"
+          Write-Host "=========================================="
       # ============================================================
       # 4. INSTALAR SCREAM
       # ============================================================
