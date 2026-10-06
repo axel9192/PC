@@ -280,46 +280,19 @@ jobs:
           Write-Host $inf.FullName
 
           Write-Host "Iniciando instalación con PnPUtil..."
+     # ============================================================
+      # 3. SCREAM
+      # ============================================================
 
-          $p = Start-Process `
-            -FilePath "$env:SystemRoot\System32\pnputil.exe" `
-            -ArgumentList @(
-              "/add-driver",
-              "`"$($inf.FullName)`"",
-              "/install"
-            ) `
-            -PassThru `
-            -WindowStyle Hidden
-
-          try {
-            Wait-Process `
-              -Id $p.Id `
-              -Timeout 30 `
-              -ErrorAction Stop
-
-            Write-Host "PnPUtil terminó."
-            Write-Host "Código: $($p.ExitCode)"
-          }
-          catch {
-            Write-Host ""
-            Write-Host "PnPUtil no terminó en 30 segundos."
-            Write-Host "Se cancela para evitar que el workflow quede congelado."
-
-            if (!$p.HasExited) {
-              Stop-Process `
-                -Id $p.Id `
-                -Force `
-                -ErrorAction SilentlyContinue
-            }
-
-            Write-Host ""
-            Write-Host "Continuando sin Scream..."
-          }
-
-          Write-Host ""
+      - name: Preparar Scream
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
           Write-Host "=========================================="
-          Write-Host " CONTINUANDO CON EL CLOUD PC"
+          Write-Host " SCREAM"
           Write-Host "=========================================="
+          Write-Host "Scream se omite en este runner."
+          Write-Host "Continuando con UltraVNC + noVNC..."
 
       # ============================================================
       # 5. INSTALAR PYTHON
