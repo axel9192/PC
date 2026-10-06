@@ -1,4 +1,4 @@
-name: Windows Cloud PC - TightVNC + noVNC + Cloudflare
+name: PC
 
 on:
   workflow_dispatch:
@@ -18,10 +18,54 @@ jobs:
       - name: Configurar Windows
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
+          # Modo oscuro
+          $theme = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+
+          New-Item -Path $theme -Force | Out-Null
+
+          Set-ItemProperty -Path $theme -Name AppsUseLightTheme -Value 0
+          Set-ItemProperty -Path $theme -Name SystemUsesLightTheme -Value 0
+
+          # Desactivar transparencias
+          Set-ItemProperty `
+            -Path $theme `
+            -Name EnableTransparency `
+            -Value 0
+
+          # Menos efectos visuales
+          $visual = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects"
+
+          New-Item -Path $visual -Force | Out-Null
+
+          Set-ItemProperty `
+            -Path $visual `
+            -Name VisualFXSetting `
+            -Value 2
+
+          # Evitar suspensión
           powercfg /hibernate off
           powercfg /change standby-timeout-ac 0
           powercfg /change monitor-timeout-ac 0
           powercfg /change disk-timeout-ac 0
+
+          # Menos actividad visual del sistema
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop" `
+            -Name MenuShowDelay `
+            -Value "0"
+
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop\WindowMetrics" `
+            -Name MinAnimate `
+            -Value "0"
+
+          # Reiniciar Explorer para aplicar cambios visuales
+          Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+          Write-Host "Windows configurado en modo oscuro y rendimiento."
 
       - name: Instalar Python
         uses: actions/setup-python@v5
@@ -67,10 +111,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # -------------------------
           # TightVNC
-          # -------------------------
-
           $tvn = "C:\Program Files\TightVNC\tvnserver.exe"
 
           if (!(Test-Path $tvn)) {
@@ -94,10 +135,7 @@ jobs:
 
           Write-Host "TightVNC OK"
 
-          # -------------------------
           # noVNC
-          # -------------------------
-
           $zip = "$env:TEMP\novnc.zip"
           $novncRoot = "C:\noVNC"
 
@@ -105,7 +143,11 @@ jobs:
             -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
             -OutFile $zip
 
-          Remove-Item $novncRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item `
+            $novncRoot `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
 
           New-Item `
             -ItemType Directory `
@@ -130,10 +172,7 @@ jobs:
 
           Write-Host "noVNC: $novncPath"
 
-          # -------------------------
           # Websockify
-          # -------------------------
-
           python -m pip install websockify==0.13.0
 
           $webOut = "C:\websockify-out.log"
@@ -184,10 +223,7 @@ jobs:
 
           Write-Host "noVNC OK"
 
-          # -------------------------
-          # Cloudflare Tunnel
-          # -------------------------
-
+          # Cloudflare
           $cloudflared = "$env:TEMP\cloudflared.exe"
 
           Invoke-WebRequest `
@@ -215,10 +251,7 @@ jobs:
             -WindowStyle Hidden `
             -PassThru
 
-          # -------------------------
           # Esperar URL
-          # -------------------------
-
           $url = $null
 
           for ($i = 1; $i -le 30; $i++) {
@@ -246,6 +279,7 @@ jobs:
           }
 
           if (!$url) {
+
             Write-Host ""
             Write-Host "===== CLOUDFLARE ====="
 
@@ -259,10 +293,6 @@ jobs:
 
             throw "Cloudflare no generó una URL"
           }
-
-          # -------------------------
-          # Cloud PC listo
-          # -------------------------
 
           Write-Host ""
           Write-Host "=========================================="
@@ -279,7 +309,7 @@ jobs:
           Write-Host "=========================================="
           Write-Host ""
 
-          # Mantener todo funcionando
+          # Mantener Cloud PC activo
           while ($true) {
 
             Start-Sleep -Seconds 30
