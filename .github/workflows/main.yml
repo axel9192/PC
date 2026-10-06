@@ -672,6 +672,10 @@ jobs:
           }
 
 
+     # ============================================================
+      # 14. DESCARGAR NOVNC
+      # ============================================================
+
             # ============================================================
       # 14. DESCARGAR NOVNC
       # ============================================================
@@ -683,10 +687,10 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           Write-Host "=========================================="
-          Write-Host " DESCARGANDO NOVNC"
+          Write-Host " DESCARGANDO NOVNC 1.7.0"
           Write-Host "=========================================="
 
-          $zip = "$env:RUNNER_TEMP\noVNC.zip"
+          $zip = "$env:RUNNER_TEMP\noVNC-1.7.0.zip"
           $extract = "$env:RUNNER_TEMP\noVNC-extract"
           $destination = "C:\noVNC"
 
@@ -710,10 +714,10 @@ jobs:
               -Force
           }
 
-          Write-Host "Descargando noVNC..."
+          Write-Host "Descargando noVNC 1.7.0..."
 
           Invoke-WebRequest `
-            -Uri "https://github.com/novnc/noVNC/archive/refs/heads/master.zip" `
+            -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
             -OutFile $zip `
             -UseBasicParsing
 
@@ -723,21 +727,19 @@ jobs:
 
           Write-Host "Descarga completada."
 
-          Write-Host "Extrayendo noVNC..."
+          Write-Host "Extrayendo..."
 
           Expand-Archive `
             -Path $zip `
             -DestinationPath $extract `
             -Force
 
-          $source = Get-ChildItem `
-            -Path $extract `
-            -Directory `
-            -ErrorAction Stop |
-            Select-Object -First 1
+          $source = Join-Path `
+            $extract `
+            "noVNC-1.7.0"
 
-          if ($null -eq $source) {
-            throw "No se encontró la carpeta de noVNC."
+          if (!(Test-Path $source)) {
+            throw "No se encontró la carpeta noVNC-1.7.0."
           }
 
           New-Item `
@@ -746,7 +748,7 @@ jobs:
             -Force | Out-Null
 
           Copy-Item `
-            -Path "$($source.FullName)\*" `
+            -Path "$source\*" `
             -Destination $destination `
             -Recurse `
             -Force
@@ -755,11 +757,18 @@ jobs:
             throw "No se encontró vnc.html."
           }
 
+          if (!(Test-Path "$destination\app")) {
+            throw "No se encontró la carpeta app de noVNC."
+          }
+
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host " NOVNC DESCARGADO"
+          Write-Host " NOVNC 1.7.0 INSTALADO"
           Write-Host "=========================================="
+          Write-Host ""
           Write-Host "Ubicación: C:\noVNC"
+          Write-Host "vnc.html: OK"
+          Write-Host "app: OK"
 
 
       # ============================================================
