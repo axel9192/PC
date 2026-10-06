@@ -97,7 +97,7 @@ jobs:
       # 3. DESCARGAR SCREAM
       # ============================================================
 
-            - name: Instalar Scream
+      - name: Instalar Scream
         shell: pwsh
         timeout-minutes: 5
         run: |
