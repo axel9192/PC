@@ -9,7 +9,6 @@ jobs:
     timeout-minutes: 360
 
     steps:
-
       - name: Preparar Windows
         shell: pwsh
         run: |
@@ -20,24 +19,15 @@ jobs:
           $theme = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 
           New-Item -Path $theme -Force | Out-Null
-
-          Set-ItemProperty `
-            -Path $theme `
-            -Name "AppsUseLightTheme" `
-            -Value 0
-
-          Set-ItemProperty `
-            -Path $theme `
-            -Name "SystemUsesLightTheme" `
-            -Value 0
+          Set-ItemProperty -Path $theme -Name "AppsUseLightTheme" -Value 0
+          Set-ItemProperty -Path $theme -Name "SystemUsesLightTheme" -Value 0
 
           Write-Host "[OK] Tema oscuro activado."
 
       - name: Instalar UltraVNC
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "[1/4] Instalando UltraVNC..."
+          Write-Host "[1/5] Descargando UltraVNC..."
 
           $zip = "$env:TEMP\UltraVNC.zip"
 
@@ -63,17 +53,68 @@ jobs:
             Select-Object -First 1
 
           if ($null -eq $vnc) {
-            throw "No se encontró winvnc.exe"
+            throw "No se encontró winvnc.exe."
           }
 
-          Write-Host "[OK] WinVNC encontrado:"
+          Write-Host "[OK] UltraVNC encontrado."
           Write-Host $vnc.FullName
 
-      - name: Configurar UltraVNC
+      - name: Configurar contraseña VNC
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "[2/4] Configurando VNC..."
+          Write-Host "[2/5] Configurando contraseña..."
+
+          $passwordZip = "$env:TEMP\createpassword.zip"
+          $passwordDir = "$env:TEMP\createpassword"
+
+          Invoke-WebRequest `
+            -Uri "https://uvnc.eu/download/133/createpassword.zip" `
+            -OutFile $passwordZip
+
+          New-Item `
+            -ItemType Directory `
+            -Path $passwordDir `
+            -Force | Out-Null
+
+          Expand-Archive `
+            -Path $passwordZip `
+            -DestinationPath $passwordDir `
+            -Force
+
+          $cp = Get-ChildItem `
+            -Path $passwordDir `
+            -Filter "createpassword64.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if ($null -eq $cp) {
+            throw "No se encontró createpassword64.exe."
+          }
+
+          $vnc = Get-ChildItem `
+            -Path "C:\UltraVNC" `
+            -Filter "winvnc.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          $dir = $vnc.DirectoryName
+
+          Push-Location $dir
+
+          & $cp.FullName secure 1
+          & $cp.FullName secure 12345678
+
+          Pop-Location
+
+          Write-Host "[OK] Contraseña VNC configurada."
+          Write-Host "[OK] Contraseña: 12345678"
+
+      - name: Configurar y arrancar UltraVNC
+        shell: pwsh
+        run: |
+          Write-Host "[3/5] Configurando servidor VNC..."
 
           $vnc = Get-ChildItem `
             -Path "C:\UltraVNC" `
@@ -83,31 +124,30 @@ jobs:
             Select-Object -First 1
 
           if ($null -eq $vnc) {
-            throw "WinVNC no encontrado."
+            throw "No se encontró WinVNC."
           }
 
           $dir = $vnc.DirectoryName
           $ini = Join-Path $dir "ultravnc.ini"
+
           $config = @"
-          [ultravnc]
-          SocketConnect=1
-          PortNumber=5900
-          AutoPortSelect=0
-          InputsEnabled=1
-          AllowLoopback=1
-          LoopbackOnly=0
-          IdleTimeout=0
-          IdleInputTimeout=0
-          "@
+[ultravnc]
+SocketConnect=1
+PortNumber=5900
+AutoPortSelect=0
+InputsEnabled=1
+AllowLoopback=1
+LoopbackOnly=0
+IdleTimeout=0
+IdleInputTimeout=0
+"@
 
           Set-Content `
             -Path $ini `
             -Value $config `
             -Encoding ASCII
 
-          Write-Host "[OK] VNC configurado en puerto 5900."
-
-          Write-Host "[...] Iniciando WinVNC..."
+          Write-Host "[OK] Puerto VNC: 5900"
 
           Start-Process `
             -FilePath $vnc.FullName `
@@ -115,22 +155,21 @@ jobs:
 
           Start-Sleep -Seconds 5
 
-          $vncPort = Test-NetConnection `
+          $test = Test-NetConnection `
             -ComputerName "127.0.0.1" `
             -Port 5900 `
             -WarningAction SilentlyContinue
 
-          if (-not $vncPort.TcpTestSucceeded) {
+          if (-not $test.TcpTestSucceeded) {
             throw "UltraVNC no está escuchando en el puerto 5900."
           }
 
-          Write-Host "[OK] UltraVNC está activo en 5900."
+          Write-Host "[OK] UltraVNC funcionando."
 
       - name: Instalar noVNC y Websockify
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "[3/4] Instalando noVNC + Websockify..."
+          Write-Host "[4/5] Instalando noVNC..."
 
           $novncZip = "$env:TEMP\novnc.zip"
           $websockifyZip = "$env:TEMP\websockify.zip"
@@ -171,11 +210,8 @@ jobs:
             throw "No se encontró Websockify."
           }
 
-          $novncPath = $novnc.FullName
-          $websockifyPath = $websockify.FullName
-
-          Write-Host "[OK] noVNC: $novncPath"
-          Write-Host "[OK] Websockify: $websockifyPath"
+          Write-Host "[OK] noVNC instalado."
+          Write-Host "[OK] Websockify instalado."
 
           Write-Host "[...] Iniciando Websockify..."
 
@@ -187,28 +223,31 @@ jobs:
               "6080",
               "127.0.0.1:5900",
               "--web",
-              $novncPath
+              $novnc.FullName
             ) `
-            -WorkingDirectory $websockifyPath
+            -WorkingDirectory $websockify.FullName
 
           Start-Sleep -Seconds 5
 
-          $webPort = Test-NetConnection `
+          $test = Test-NetConnection `
             -ComputerName "127.0.0.1" `
             -Port 6080 `
             -WarningAction SilentlyContinue
 
-          if (-not $webPort.TcpTestSucceeded) {
+          if (-not $test.TcpTestSucceeded) {
             throw "Websockify no abrió el puerto 6080."
           }
 
-          Write-Host "[OK] noVNC disponible en puerto 6080."
+          Write-Host "[OK] noVNC funcionando en puerto 6080."
 
-      - name: Crear túnel Cloudflare
+      - name: Cloudflare
         shell: pwsh
         run: |
+          Write-Host "[5/5] Iniciando Cloudflare..."
           Write-Host ""
-          Write-Host "[4/4] Creando túnel Cloudflare..."
+          Write-Host "========================================"
+          Write-Host "          CLOUD PC LISTO"
+          Write-Host "========================================"
           Write-Host ""
 
           $cloudflared = "C:\cloudflared.exe"
@@ -219,13 +258,7 @@ jobs:
 
           Write-Host "[OK] Cloudflared descargado."
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "          CLOUD PC LISTO"
-          Write-Host "========================================"
-          Write-Host ""
-          Write-Host "ABRE LA URL https://...trycloudflare.com"
-          Write-Host ""
-          Write-Host "NO USES UNA URL DE UNA EJECUCION ANTERIOR."
+          Write-Host "TU URL APARECERÁ ABAJO:"
           Write-Host ""
 
           & $cloudflared tunnel `
