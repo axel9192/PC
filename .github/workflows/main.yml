@@ -1,4 +1,4 @@
-name: Windows Cloud PC
+name: Windows Cloud PC - TightVNC + noVNC
 
 on:
   workflow_dispatch:
@@ -25,15 +25,8 @@ jobs:
 
           New-Item -Path $theme -Force | Out-Null
 
-          Set-ItemProperty `
-            -Path $theme `
-            -Name "AppsUseLightTheme" `
-            -Value 0
-
-          Set-ItemProperty `
-            -Path $theme `
-            -Name "SystemUsesLightTheme" `
-            -Value 0
+          Set-ItemProperty -Path $theme -Name "AppsUseLightTheme" -Value 0
+          Set-ItemProperty -Path $theme -Name "SystemUsesLightTheme" -Value 0
 
           Write-Host "[OK] Tema oscuro activado."
 
@@ -76,8 +69,6 @@ jobs:
             "VALUE_OF_VIEWONLYPASSWORD=12345678"
           )
 
-          Write-Host "[...] Instalando TightVNC..."
-
           $process = Start-Process `
             -FilePath "msiexec.exe" `
             -ArgumentList $arguments `
@@ -92,7 +83,7 @@ jobs:
 
 
       # ==========================================================
-      # 3. TIGHTVNC
+      # 3. INICIAR TIGHTVNC
       # ==========================================================
 
       - name: Iniciar TightVNC
@@ -107,13 +98,13 @@ jobs:
             throw "No existe: $server"
           }
 
-          Write-Host "[OK] $server"
+          Write-Host "[OK] Servidor encontrado."
 
-          & $server -install -silent 2>$null
+          & $server -install -silent
 
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
 
-          & $server -start -silent 2>$null
+          & $server -start -silent
 
           Start-Sleep -Seconds 5
 
@@ -126,7 +117,7 @@ jobs:
             throw "TightVNC no está escuchando en 5900."
           }
 
-          Write-Host "[OK] TightVNC activo en 5900."
+          Write-Host "[OK] TightVNC escuchando en 5900."
 
 
       # ==========================================================
@@ -140,24 +131,20 @@ jobs:
 
 
       # ==========================================================
-      # 5. NOVNC
+      # 5. DESCARGAR NOVNC
       # ==========================================================
 
       - name: Descargar noVNC
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "[3/4] Preparando noVNC..."
+          Write-Host "[3/4] Descargando noVNC..."
 
           $zip = "$env:TEMP\novnc.zip"
 
           Invoke-WebRequest `
             -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
             -OutFile $zip
-
-          if (!(Test-Path $zip)) {
-            throw "No se pudo descargar noVNC."
-          }
 
           Expand-Archive `
             -Path $zip `
@@ -201,46 +188,66 @@ jobs:
 
           Write-Host "[...] Iniciando Websockify..."
 
+          $arguments = @(
+            "-m"
+            "websockify"
+            "--verbose"
+            "--allow-loopback"
+            "--web"
+            $env:NOVNC_PATH
+            "6080"
+            "127.0.0.1:5900"
+          )
+
           Start-Process `
-            -FilePath "websockify.exe" `
-            -ArgumentList @(
-              "--verbose"
-              "--allow-loopback"
-              "--web"
-              $env:NOVNC_PATH
-              "6080"
-              "127.0.0.1:5900"
-            ) `
+            -FilePath "python.exe" `
+            -ArgumentList $arguments `
             -RedirectStandardOutput $stdout `
             -RedirectStandardError $stderr `
             -WindowStyle Hidden
 
-          Start-Sleep -Seconds 8
+          Write-Host "[...] Esperando puerto 6080..."
+
+          $ready = $false
+
+          for ($i = 1; $i -le 30; $i++) {
+
+            Start-Sleep -Seconds 1
+
+            $test = Test-NetConnection `
+              -ComputerName "127.0.0.1" `
+              -Port 6080 `
+              -WarningAction SilentlyContinue
+
+            if ($test.TcpTestSucceeded) {
+              $ready = $true
+              break
+            }
+
+            Write-Host "Esperando Websockify... $i/30"
+          }
 
           Write-Host ""
-          Write-Host "========== WEBSOCKIFY =========="
+          Write-Host "========== WEBSOCKIFY OUTPUT =========="
 
           if (Test-Path $stdout) {
             Get-Content $stdout
           }
+
+          Write-Host ""
+          Write-Host "========== WEBSOCKIFY ERRORS =========="
 
           if (Test-Path $stderr) {
             Get-Content $stderr
           }
 
           Write-Host ""
-          Write-Host "========== PUERTO 6080 =========="
 
-          $web = Test-NetConnection `
-            -ComputerName "127.0.0.1" `
-            -Port 6080 `
-            -WarningAction SilentlyContinue
-
-          if (!$web.TcpTestSucceeded) {
-            throw "Websockify no está escuchando en 6080."
+          if (!$ready) {
+            throw "Websockify no abrió el puerto 6080."
           }
 
-          Write-Host "[OK] Websockify activo en 6080."
+          Write-Host "[OK] Websockify escuchando en 6080."
 
 
       # ==========================================================
@@ -268,13 +275,13 @@ jobs:
           Write-Host "          CLOUD PC LISTO"
           Write-Host "========================================"
           Write-Host ""
-          Write-Host "Busca la URL que termine en:"
-          Write-Host "trycloudflare.com"
+          Write-Host "Busca la URL:"
+          Write-Host "https://xxxxx.trycloudflare.com"
           Write-Host ""
-          Write-Host "Luego abre:"
-          Write-Host "https://TU-URL.trycloudflare.com/vnc.html"
+          Write-Host "ABRE:"
+          Write-Host "https://xxxxx.trycloudflare.com/vnc.html"
           Write-Host ""
-          Write-Host "Contraseña:"
+          Write-Host "CONTRASEÑA:"
           Write-Host "12345678"
           Write-Host ""
           Write-Host "========================================"
