@@ -146,6 +146,10 @@ jobs:
             -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
             -OutFile $zip
 
+          if (!(Test-Path $zip)) {
+            throw "No se pudo descargar noVNC."
+          }
+
           Expand-Archive `
             -Path $zip `
             -DestinationPath "C:\noVNC" `
@@ -192,7 +196,6 @@ jobs:
             "-m"
             "websockify"
             "--verbose"
-            "--allow-loopback"
             "--web"
             $env:NOVNC_PATH
             "6080"
@@ -275,11 +278,10 @@ jobs:
           Write-Host "          CLOUD PC LISTO"
           Write-Host "========================================"
           Write-Host ""
-          Write-Host "Busca la URL:"
-          Write-Host "https://xxxxx.trycloudflare.com"
+          Write-Host "Busca la URL trycloudflare.com"
           Write-Host ""
           Write-Host "ABRE:"
-          Write-Host "https://xxxxx.trycloudflare.com/vnc.html"
+          Write-Host "https://TU-URL.trycloudflare.com/vnc.html"
           Write-Host ""
           Write-Host "CONTRASEÑA:"
           Write-Host "12345678"
