@@ -58,16 +58,16 @@ jobs:
           Write-Host $vnc.FullName
 
           $config = @"
-[ultravnc]
-SocketConnect=1
-HTTPConnect=1
-PortNumber=5900
-HTTPPortNumber=5800
-AutoPortSelect=0
-InputsEnabled=1
-AllowLoopback=1
-LoopbackOnly=0
-"@
+          [ultravnc]
+          SocketConnect=1
+          HTTPConnect=1
+          PortNumber=5900
+          HTTPPortNumber=5800
+          AutoPortSelect=0
+          InputsEnabled=1
+          AllowLoopback=1
+          LoopbackOnly=0
+          "@
 
           Set-Content -Path $ini -Value $config -Encoding ASCII
 
