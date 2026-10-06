@@ -1,13 +1,22 @@
-name: Windows Cloud PC - TightVNC + noVNC
+name: Windows Cloud PC - TightVNC + noVNC + Cloudflare
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+
   cloud-pc:
 
     runs-on: windows-2025
     timeout-minutes: 360
+
+    env:
+      VNC_PASSWORD: "12345678"
+      VNC_PORT: "5900"
+      NOVNC_PORT: "6080"
 
     steps:
 
@@ -15,29 +24,106 @@ jobs:
       # 1. CONFIGURAR WINDOWS
       # ============================================================
 
-      - name: Configurar Windows
+      - name: Configurar Windows Cloud PC
         shell: pwsh
         run: |
 
-          Write-Host "========================================"
-          Write-Host "       WINDOWS CLOUD PC"
-          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "        WINDOWS CLOUD PC"
+          Write-Host "=============================================="
+
+          # Ocultar la contraseña de los logs
+          Write-Output "::add-mask::$env:VNC_PASSWORD"
+
+          Write-Host ""
+          Write-Host "[1/8] Configurando Windows..."
+
+          # --------------------------------------------
+          # Modo oscuro
+          # --------------------------------------------
 
           $theme = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 
-          New-Item -Path $theme -Force | Out-Null
+          New-Item `
+            -Path $theme `
+            -Force `
+            | Out-Null
 
           Set-ItemProperty `
             -Path $theme `
             -Name AppsUseLightTheme `
+            -Type DWord `
             -Value 0
 
           Set-ItemProperty `
             -Path $theme `
             -Name SystemUsesLightTheme `
+            -Type DWord `
             -Value 0
 
-          Write-Host "[OK] Modo oscuro activado."
+          # --------------------------------------------
+          # Evitar suspensión
+          # --------------------------------------------
+
+          powercfg /change standby-timeout-ac 0
+          powercfg /change standby-timeout-dc 0
+          powercfg /change monitor-timeout-ac 0
+          powercfg /change monitor-timeout-dc 0
+
+          # Hibernación desactivada
+          powercfg /hibernate off
+
+          # --------------------------------------------
+          # Plan de alto rendimiento
+          # --------------------------------------------
+
+          try {
+            powercfg /setactive SCHEME_MIN
+          }
+          catch {
+            Write-Host "[WARN] No se pudo seleccionar Alto rendimiento."
+          }
+
+          # --------------------------------------------
+          # Desactivar protector de pantalla
+          # --------------------------------------------
+
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop" `
+            -Name ScreenSaveActive `
+            -Value "0"
+
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop" `
+            -Name ScreenSaveTimeout `
+            -Value "0"
+
+          # --------------------------------------------
+          # Mantener Explorer funcionando
+          # --------------------------------------------
+
+          $explorer = Get-Process explorer -ErrorAction SilentlyContinue
+
+          if ($null -eq $explorer) {
+
+            Write-Host "[INFO] Explorer no estaba iniciado."
+
+            Start-Process "explorer.exe"
+
+            Start-Sleep -Seconds 5
+          }
+
+          Write-Host ""
+          Write-Host "[OK] Windows configurado."
+
+          Write-Host ""
+          Write-Host "Usuario actual:"
+          whoami
+
+          Write-Host ""
+          Write-Host "Sesión:"
+          query user
 
 
       # ============================================================
@@ -49,59 +135,132 @@ jobs:
         with:
           python-version: "3.12"
 
-
       # ============================================================
-      # 3. INSTALAR TIGHTVNC
+      # 3. TIGHTVNC
       # ============================================================
 
-      - name: Instalar TightVNC
+      - name: Descargar TightVNC 2.8.90
         shell: pwsh
         run: |
 
           Write-Host ""
-          Write-Host "[1/5] Instalando TightVNC..."
+          Write-Host "=============================================="
+          Write-Host "        TIGHTVNC 2.8.90"
+          Write-Host "=============================================="
 
-          $installer = "$env:TEMP\tightvnc.msi"
+          $installer = "$env:TEMP\tightvnc-2.8.90.msi"
+
+          $url = "https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi"
+
+          Write-Host ""
+          Write-Host "Descargando..."
 
           Invoke-WebRequest `
-            -Uri "https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi" `
+            -Uri $url `
             -OutFile $installer
 
           if (!(Test-Path $installer)) {
             throw "No se pudo descargar TightVNC."
           }
 
-          Write-Host "[OK] Instalador descargado."
+          $size = (Get-Item $installer).Length
 
-          $arguments = @(
+          Write-Host ""
+          Write-Host "Archivo:"
+          Write-Host $installer
+
+          Write-Host ""
+          Write-Host "Tamaño: $size bytes"
+
+          if ($size -lt 1000000) {
+            throw "El instalador descargado parece inválido."
+          }
+
+          Write-Host "[OK] TightVNC descargado."
+
+
+      - name: Instalar TightVNC
+        shell: pwsh
+        run: |
+
+          Write-Host ""
+          Write-Host "Instalando TightVNC..."
+
+          $installer = "$env:TEMP\tightvnc-2.8.90.msi"
+
+          $args = @(
             "/i"
             "`"$installer`""
             "/quiet"
             "/norestart"
 
+            # Instalar servidor
+            "ADDLOCAL=Server"
+
+            # Registrar como servicio
+            "SERVER_REGISTER_AS_SERVICE=1"
+
+            # Firewall
+            "SERVER_ADD_FIREWALL_EXCEPTION=1"
+
+            # SAS / Ctrl+Alt+Del
+            "SERVER_ALLOW_SAS=1"
+
+            # ----------------------------------------
+            # VNC AUTH
+            # ----------------------------------------
+
             "SET_USEVNCAUTHENTICATION=1"
             "VALUE_OF_USEVNCAUTHENTICATION=1"
 
+            # ----------------------------------------
+            # PASSWORD
+            # ----------------------------------------
+
             "SET_PASSWORD=1"
-            "VALUE_OF_PASSWORD=12345678"
+            "VALUE_OF_PASSWORD=$env:VNC_PASSWORD"
+
+            # ----------------------------------------
+            # VNC
+            # ----------------------------------------
+
+            "SET_ACCEPTRFBCONNECTIONS=1"
+            "VALUE_OF_ACCEPTRFBCONNECTIONS=1"
+
+            # ----------------------------------------
+            # LOOPBACK
+            # ----------------------------------------
 
             "SET_ALLOWLOOPBACK=1"
             "VALUE_OF_ALLOWLOOPBACK=1"
 
-            "SET_ACCEPTRFBCONNECTIONS=1"
-            "VALUE_OF_ACCEPTRFBCONNECTIONS=1"
+            # Solo se aceptarán conexiones locales.
+            # El único que llegará al VNC será websockify.
+            "SET_LOOPBACKONLY=1"
+            "VALUE_OF_LOOPBACKONLY=1"
+
+            # ----------------------------------------
+            # PUERTO
+            # ----------------------------------------
+
+            "SET_RFBPORT=1"
+            "VALUE_OF_VALERFBPORT=$env:VNC_PORT"
           )
 
-          $process = Start-Process `
+          Write-Host ""
+          Write-Host "Ejecutando MSI..."
+
+          $p = Start-Process `
             -FilePath "msiexec.exe" `
-            -ArgumentList $arguments `
+            -ArgumentList $args `
             -Wait `
             -PassThru
 
-          Write-Host "MSI ExitCode: $($process.ExitCode)"
+          Write-Host ""
+          Write-Host "MSI ExitCode: $($p.ExitCode)"
 
-          if ($process.ExitCode -ne 0) {
-            throw "TightVNC falló. Código MSI: $($process.ExitCode)"
+          if ($p.ExitCode -ne 0) {
+            throw "Falló la instalación de TightVNC. Código MSI: $($p.ExitCode)"
           }
 
           $tvn = "C:\Program Files\TightVNC\tvnserver.exe"
@@ -110,13 +269,12 @@ jobs:
             throw "No se encontró tvnserver.exe."
           }
 
+          Write-Host ""
           Write-Host "[OK] TightVNC instalado."
-          Write-Host "[OK] Contraseña: 12345678"
-          Write-Host "[OK] VNC configurado."
 
 
       # ============================================================
-      # 4. INICIAR TIGHTVNC
+      # 4. ARRANCAR TIGHTVNC
       # ============================================================
 
       - name: Iniciar TightVNC
@@ -124,7 +282,9 @@ jobs:
         run: |
 
           Write-Host ""
-          Write-Host "[2/5] Iniciando TightVNC..."
+          Write-Host "=============================================="
+          Write-Host "        INICIANDO TIGHTVNC"
+          Write-Host "=============================================="
 
           $tvn = "C:\Program Files\TightVNC\tvnserver.exe"
 
@@ -132,89 +292,155 @@ jobs:
             throw "No existe tvnserver.exe."
           }
 
-          # Instalar el servicio por seguridad
+          # Asegurar que el servicio exista
           & $tvn -install -silent
 
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 2
 
-          # Iniciar servicio
+          # Arrancar servicio
           & $tvn -start -silent
 
           Start-Sleep -Seconds 5
 
           Write-Host ""
-          Write-Host "Servicios TightVNC:"
+          Write-Host "Servicios relacionados:"
+
           Get-Service |
             Where-Object {
               $_.Name -like "*TightVNC*" -or
               $_.DisplayName -like "*TightVNC*"
             } |
-            Format-Table Name, Status, StartType
+            Format-Table `
+              Name,
+              DisplayName,
+              Status,
+              StartType
+
+          # --------------------------------------------------------
+          # Verificar puerto
+          # --------------------------------------------------------
 
           Write-Host ""
-          Write-Host "Comprobando puerto 5900..."
+          Write-Host "Comprobando puerto $env:VNC_PORT..."
 
           $ready = $false
 
-          for ($i = 1; $i -le 20; $i++) {
+          for ($i = 1; $i -le 30; $i++) {
 
             Start-Sleep -Seconds 1
 
             $test = Test-NetConnection `
               -ComputerName "127.0.0.1" `
-              -Port 5900 `
+              -Port ([int]$env:VNC_PORT) `
               -WarningAction SilentlyContinue
 
             if ($test.TcpTestSucceeded) {
 
               $ready = $true
 
-              Write-Host "[OK] TightVNC escuchando en 127.0.0.1:5900"
+              Write-Host ""
+              Write-Host "[OK] TightVNC escuchando."
+              Write-Host "127.0.0.1:$env:VNC_PORT"
 
               break
             }
 
-            Write-Host "Esperando TightVNC... $i/20"
+            Write-Host "Esperando TightVNC... $i/30"
           }
 
           if (!$ready) {
 
             Write-Host ""
-            Write-Host "========== SERVICIOS =========="
-
-            Get-Service |
-              Where-Object {
-                $_.Name -like "*TightVNC*" -or
-                $_.DisplayName -like "*TightVNC*"
-              }
+            Write-Host "=============================================="
+            Write-Host "       TIGHTVNC NO ESTÁ ESCUCHANDO"
+            Write-Host "=============================================="
 
             Write-Host ""
-            Write-Host "========== PROCESOS =========="
+            Write-Host "Procesos tvnserver:"
 
             Get-Process |
               Where-Object {
                 $_.ProcessName -like "*tvn*"
-              }
+              } |
+              Format-Table `
+                Id,
+                ProcessName,
+                SessionId
 
-            throw "TightVNC no está escuchando en el puerto 5900."
+            Write-Host ""
+            Write-Host "Puerto:"
+
+            Get-NetTCPConnection `
+              -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.LocalPort -eq [int]$env:VNC_PORT
+              } |
+              Format-Table `
+                LocalAddress,
+                LocalPort,
+                State,
+                OwningProcess
+
+            throw "TightVNC no inició correctamente."
           }
 
 
       # ============================================================
-      # 5. DESCARGAR NOVNC
+      # 5. INSTALAR WEBSOCKIFY
       # ============================================================
 
-      - name: Descargar noVNC
+      - name: Instalar websockify
         shell: pwsh
         run: |
 
           Write-Host ""
-          Write-Host "[3/5] Descargando noVNC..."
+          Write-Host "=============================================="
+          Write-Host "        WEBSOCKIFY 0.13.0"
+          Write-Host "=============================================="
 
-          $zip = "$env:TEMP\novnc.zip"
+          python -m pip install --upgrade pip
+
+          python -m pip install websockify==0.13.0
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "No se pudo instalar websockify."
+          }
+
+          Write-Host ""
+          Write-Host "Comprobando websockify..."
+
+          python -m websockify --help
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "websockify no funciona."
+          }
+
+          Write-Host ""
+          Write-Host "[OK] websockify instalado."
+
+
+      # ============================================================
+      # 6. NOVNC
+      # ============================================================
+
+      - name: Descargar noVNC 1.7.0
+        shell: pwsh
+        run: |
+
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "        NOVNC 1.7.0"
+          Write-Host "=============================================="
+
+          $zip = "$env:TEMP\novnc-1.7.0.zip"
+
+          $url = "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip"
+
+          Write-Host ""
+          Write-Host "Descargando noVNC..."
 
           Invoke-WebRequest `
-            -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.zip" `
+            -Uri $url `
             -OutFile $zip
 
           if (!(Test-Path $zip)) {
@@ -243,42 +469,26 @@ jobs:
 
           $novnc = $folder.FullName
 
+          Write-Host ""
+          Write-Host "noVNC:"
+          Write-Host $novnc
+
           if (!(Test-Path "$novnc\vnc.html")) {
-            throw "No se encontró vnc.html."
+            throw "No existe vnc.html."
           }
 
-          Write-Host "[OK] noVNC encontrado:"
-          Write-Host $novnc
+          if (!(Test-Path "$novnc\core")) {
+            throw "La instalación de noVNC parece incompleta."
+          }
 
           "NOVNC_PATH=$novnc" >> $env:GITHUB_ENV
 
-
-      # ============================================================
-      # 6. WEBSOCKIFY
-      # ============================================================
-
-      - name: Instalar Websockify
-        shell: pwsh
-        run: |
-
           Write-Host ""
-          Write-Host "[4/5] Instalando Websockify..."
-
-          python -m pip install --upgrade pip
-
-          python -m pip install websockify==0.13.0
-
-          python -m websockify --help
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Websockify no se pudo instalar."
-          }
-
-          Write-Host "[OK] Websockify instalado."
+          Write-Host "[OK] noVNC instalado."
 
 
       # ============================================================
-      # 7. INICIAR NOVNC
+      # 7. INICIAR NOVNC + WEBSOCKIFY
       # ============================================================
 
       - name: Iniciar noVNC
@@ -286,121 +496,198 @@ jobs:
         run: |
 
           Write-Host ""
-          Write-Host "[5/5] Iniciando noVNC..."
+          Write-Host "=============================================="
+          Write-Host "        INICIANDO NOVNC"
+          Write-Host "=============================================="
 
           $novnc = $env:NOVNC_PATH
 
           if (!(Test-Path "$novnc\vnc.html")) {
-            throw "vnc.html no existe."
+            throw "No se encontró vnc.html."
           }
 
-          $out = "C:\novnc-out.log"
-          $err = "C:\novnc-err.log"
+          $stdout = "C:\websockify-out.log"
+          $stderr = "C:\websockify-err.log"
 
-          Remove-Item $out -Force -ErrorAction SilentlyContinue
-          Remove-Item $err -Force -ErrorAction SilentlyContinue
+          Remove-Item `
+            $stdout `
+            -Force `
+            -ErrorAction SilentlyContinue
 
-          Write-Host ""
-          Write-Host "Websockify:"
-          Write-Host "127.0.0.1:5900 -> 0.0.0.0:6080"
+          Remove-Item `
+            $stderr `
+            -Force `
+            -ErrorAction SilentlyContinue
 
-          # IMPORTANTE:
+          # --------------------------------------------------------
+          # websockify:
+          #
+          # HTTP/noVNC:
+          # 6080
+          #
+          # VNC:
+          # 5900
+          #
           # NO usamos novnc_proxy.
-          # Ejecutamos Websockify directamente con Python.
+          # --------------------------------------------------------
 
           $arguments = @(
             "-m"
             "websockify"
 
             "--web"
-            "`"$novnc`""
+            "$novnc"
 
-            "0.0.0.0:6080"
-            "127.0.0.1:5900"
+            "--heartbeat"
+            "30"
+
+            "0.0.0.0:$env:NOVNC_PORT"
+            "127.0.0.1:$env:VNC_PORT"
           )
+
+          Write-Host ""
+          Write-Host "Puente:"
+          Write-Host "0.0.0.0:$env:NOVNC_PORT"
+          Write-Host "       ↓"
+          Write-Host "127.0.0.1:$env:VNC_PORT"
 
           $process = Start-Process `
             -FilePath "python.exe" `
             -ArgumentList $arguments `
-            -RedirectStandardOutput $out `
-            -RedirectStandardError $err `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
             -WindowStyle Hidden `
             -PassThru
 
-          Write-Host "PID Websockify: $($process.Id)"
-
           Write-Host ""
-          Write-Host "Esperando puerto 6080..."
+          Write-Host "PID websockify: $($process.Id)"
+
+          # --------------------------------------------------------
+          # Esperar 6080
+          # --------------------------------------------------------
 
           $ready = $false
 
-          for ($i = 1; $i -le 30; $i++) {
+          for ($i = 1; $i -le 40; $i++) {
 
             Start-Sleep -Seconds 1
 
+            if ($process.HasExited) {
+
+              Write-Host ""
+              Write-Host "websockify se cerró."
+
+              if (Test-Path $stderr) {
+                Get-Content $stderr
+              }
+
+              throw "websockify terminó inesperadamente."
+            }
+
             $test = Test-NetConnection `
               -ComputerName "127.0.0.1" `
-              -Port 6080 `
+              -Port ([int]$env:NOVNC_PORT) `
               -WarningAction SilentlyContinue
 
             if ($test.TcpTestSucceeded) {
 
               $ready = $true
 
-              Write-Host "[OK] noVNC escuchando en 6080."
+              Write-Host ""
+              Write-Host "[OK] Puerto $env:NOVNC_PORT abierto."
 
               break
             }
 
-            Write-Host "Esperando... $i/30"
+            Write-Host "Esperando noVNC... $i/40"
           }
 
           if (!$ready) {
 
             Write-Host ""
-            Write-Host "========== WEBSOCKIFY ERROR =========="
+            Write-Host "=============================================="
+            Write-Host "       WEBSOCKIFY NO INICIÓ"
+            Write-Host "=============================================="
 
-            if (Test-Path $err) {
-              Get-Content $err
+            Write-Host ""
+            Write-Host "========== STDERR =========="
+
+            if (Test-Path $stderr) {
+              Get-Content $stderr
             }
 
             Write-Host ""
-            Write-Host "========== WEBSOCKIFY OUTPUT =========="
+            Write-Host "========== STDOUT =========="
 
-            if (Test-Path $out) {
-              Get-Content $out
+            if (Test-Path $stdout) {
+              Get-Content $stdout
             }
 
-            throw "Websockify no inició."
+            throw "noVNC/websockify no inició."
           }
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "          NOVNC FUNCIONANDO"
-          Write-Host "========================================"
+          # --------------------------------------------------------
+          # Probar vnc.html
+          # --------------------------------------------------------
 
           Write-Host ""
-          Write-Host "URL LOCAL:"
-          Write-Host "http://127.0.0.1:6080/vnc.html"
+          Write-Host "Probando noVNC HTTP..."
+
+          $httpUrl = "http://127.0.0.1:$env:NOVNC_PORT/vnc.html"
+
+          try {
+
+            $response = Invoke-WebRequest `
+              -Uri $httpUrl `
+              -UseBasicParsing `
+              -TimeoutSec 20
+
+            if ($response.StatusCode -ne 200) {
+              throw "HTTP respondió $($response.StatusCode)"
+            }
+
+            Write-Host "[OK] vnc.html responde HTTP 200."
+
+          }
+          catch {
+
+            Write-Host ""
+            Write-Host "Error HTTP noVNC:"
+            Write-Host $_
+
+            if (Test-Path $stderr) {
+              Write-Host ""
+              Write-Host "========== WEBSOCKIFY STDERR =========="
+              Get-Content $stderr
+            }
+
+            throw
+          }
 
 
       # ============================================================
-      # 8. CLOUDFLARE TUNNEL
+      # 8. CLOUDFLARE QUICK TUNNEL
       # ============================================================
 
-      - name: Crear acceso público noVNC
+      - name: Crear URL pública
         shell: pwsh
         run: |
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "     CREANDO TUNEL CLOUDFLARE"
-          Write-Host "========================================"
+          Write-Host "=============================================="
+          Write-Host "        CLOUDFLARE QUICK TUNNEL"
+          Write-Host "=============================================="
 
           $cloudflared = "$env:TEMP\cloudflared.exe"
 
+          # Versión actual al 05/10/2026
+          $cfUrl = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe"
+
+          Write-Host ""
+          Write-Host "Descargando cloudflared 2026.10.0..."
+
           Invoke-WebRequest `
-            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
+            -Uri $cfUrl `
             -OutFile $cloudflared
 
           if (!(Test-Path $cloudflared)) {
@@ -409,48 +696,29 @@ jobs:
 
           Write-Host "[OK] cloudflared descargado."
 
-          $cfLog = "C:\cloudflared.log"
+
+          # --------------------------------------------------------
+          # Logs separados
+          #
+          # IMPORTANTE:
+          # stdout != stderr
+          # --------------------------------------------------------
+
+          $cfOut = "C:\cloudflared-out.log"
+          $cfErr = "C:\cloudflared-err.log"
 
           Remove-Item `
-            $cfLog `
+            $cfOut `
             -Force `
             -ErrorAction SilentlyContinue
 
-          Start-Process `
-            -FilePath $cloudflared `
-            -ArgumentList @(
-              "tunnel"
-              "--url"
-              "http://127.0.0.1:6080"
-              "--no-autoupdate"
-            ) `
-            -RedirectStandardOutput $cfLog `
-            -RedirectStandardError $cfLog `
-            -WindowStyle Hidden
+          Remove-Item `
+            $cfErr `
+            -Force `
+            -ErrorAction SilentlyContinue
 
-          Write-Host ""
-          Write-Host "Esperando URL pública..."
 
-          $url = $null
-
-          for ($i = 1; $i -le 40; $i++) {
-
-            Start-Sleep -Seconds 2
-
-            if (Test-Path $cfLog) {
-
-              $content = Get-Content `
-                $cfLog `
-                -Raw `
-                -ErrorAction SilentlyContinue
-
-              $match = [regex]::Match(
-                $content,
-                'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
-              )
-
-              if ($match.Success) {
-
+          
                 $url = $match.Value
 
                 break
@@ -509,4 +777,253 @@ jobs:
                 Write-Host "[Cloudflare] $($content.Trim())"
               }
             }
+          }
+
+
+          # --------------------------------------------------------
+          # Iniciar túnel
+          # --------------------------------------------------------
+
+          Write-Host ""
+          Write-Host "Iniciando Cloudflare..."
+
+          $cfProcess = Start-Process `
+            -FilePath $cloudflared `
+            -ArgumentList @(
+              "tunnel"
+              "--url"
+              "http://127.0.0.1:$env:NOVNC_PORT"
+              "--no-autoupdate"
+            ) `
+            -RedirectStandardOutput $cfOut `
+            -RedirectStandardError $cfErr `
+            -WindowStyle Hidden `
+            -PassThru
+
+          Write-Host ""
+          Write-Host "Cloudflare PID: $($cfProcess.Id)"
+
+
+          # --------------------------------------------------------
+          # Esperar URL trycloudflare.com
+          # --------------------------------------------------------
+
+          $publicUrl = $null
+
+          Write-Host ""
+          Write-Host "Esperando URL pública..."
+
+          for ($i = 1; $i -le 45; $i++) {
+
+            Start-Sleep -Seconds 2
+
+            $output = ""
+
+            if (Test-Path $cfOut) {
+
+              try {
+                $output += Get-Content `
+                  $cfOut `
+                  -Raw `
+                  -ErrorAction SilentlyContinue
+              }
+              catch {}
+            }
+
+            if (Test-Path $cfErr) {
+
+              try {
+                $output += Get-Content `
+                  $cfErr `
+                  -Raw `
+                  -ErrorAction SilentlyContinue
+              }
+              catch {}
+            }
+
+            $match = [regex]::Match(
+              $output,
+              'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
+            )
+
+            if ($match.Success) {
+
+              $publicUrl = $match.Value
+
+              break
+            }
+
+            if ($cfProcess.HasExited) {
+
+              Write-Host ""
+              Write-Host "Cloudflare terminó antes de crear el túnel."
+
+              break
+            }
+
+            Write-Host "Esperando Cloudflare... $i/45"
+          }
+
+
+          # --------------------------------------------------------
+          # Comprobar URL
+          # --------------------------------------------------------
+
+          if (!$publicUrl) {
+
+            Write-Host ""
+            Write-Host "=============================================="
+            Write-Host "       CLOUDFLARE NO CREÓ EL TÚNEL"
+            Write-Host "=============================================="
+
+            Write-Host ""
+            Write-Host "========== STDOUT =========="
+
+            if (Test-Path $cfOut) {
+              Get-Content $cfOut
+            }
+
+            Write-Host ""
+            Write-Host "========== STDERR =========="
+
+            if (Test-Path $cfErr) {
+              Get-Content $cfErr
+            }
+
+            throw "No se obtuvo URL de Cloudflare."
+          }
+
+
+          # --------------------------------------------------------
+          # URL FINAL
+          # --------------------------------------------------------
+
+          $finalUrl = "$publicUrl/vnc.html?autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+
+
+          Write-Host ""
+          Write-Host ""
+          Write-Host "################################################"
+          Write-Host "#                                              #"
+          Write-Host "#        WINDOWS CLOUD PC LISTO                #"
+          Write-Host "#                                              #"
+          Write-Host "################################################"
+
+          Write-Host ""
+          Write-Host "URL PARA TU CELULAR:"
+          Write-Host ""
+          Write-Host $finalUrl
+
+          Write-Host ""
+          Write-Host "CONTRASEÑA VNC:"
+          Write-Host $env:VNC_PASSWORD
+
+          Write-Host ""
+          Write-Host "VNC:"
+          Write-Host "127.0.0.1:$env:VNC_PORT"
+
+          Write-Host ""
+          Write-Host "noVNC:"
+          Write-Host "127.0.0.1:$env:NOVNC_PORT"
+
+          Write-Host ""
+          Write-Host "################################################"
+
+
+          # --------------------------------------------------------
+          # Guardar URL como variable de entorno
+          # --------------------------------------------------------
+
+          "PUBLIC_NOVNC_URL=$finalUrl" >> $env:GITHUB_ENV
+
+
+          # --------------------------------------------------------
+          # Mostrar también en Summary de GitHub
+          # --------------------------------------------------------
+
+          @"
+
+          # 🖥️ Windows Cloud PC
+
+          ## noVNC
+
+          **Abrir desde el celular:**
+
+          $finalUrl
+
+          ## Contraseña VNC
+
+          \`$env:VNC_PASSWORD\`
+
+          ## Estado
+
+          - TightVNC: ✅
+          - Websockify: ✅
+          - noVNC: ✅
+          - Cloudflare Tunnel: ✅
+
+          "@ | Out-File `
+            -FilePath $env:GITHUB_STEP_SUMMARY `
+            -Encoding utf8 `
+            -Append
+
+
+          # --------------------------------------------------------
+          # Mantener el job vivo
+          # --------------------------------------------------------
+
+          Write-Host ""
+          Write-Host "Cloud PC activo."
+          Write-Host "El runner permanecerá encendido hasta terminar el job."
+
+          while ($true) {
+
+            Start-Sleep -Seconds 30
+
+            # Comprobar websockify
+            if ($process.HasExited) {
+
+              Write-Host ""
+              Write-Host "[ERROR] websockify se cerró."
+
+              if (Test-Path $stderr) {
+                Get-Content $stderr
+              }
+
+              break
+            }
+
+            # Comprobar Cloudflare
+            if ($cfProcess.HasExited) {
+
+              Write-Host ""
+              Write-Host "[ERROR] cloudflared se cerró."
+
+              if (Test-Path $cfErr) {
+                Get-Content $cfErr
+              }
+
+              break
+            }
+
+            # Comprobar puertos
+            $vncCheck = Test-NetConnection `
+              -ComputerName "127.0.0.1" `
+              -Port ([int]$env:VNC_PORT) `
+              -WarningAction SilentlyContinue
+
+            $webCheck = Test-NetConnection `
+              -ComputerName "127.0.0.1" `
+              -Port ([int]$env:NOVNC_PORT) `
+              -WarningAction SilentlyContinue
+
+            if (!$vncCheck.TcpTestSucceeded) {
+              Write-Host "[WARN] Puerto VNC 5900 dejó de responder."
+            }
+
+            if (!$webCheck.TcpTestSucceeded) {
+              Write-Host "[WARN] Puerto noVNC 6080 dejó de responder."
+            }
+
+            Write-Host "[OK] Cloud PC activo."
           }
