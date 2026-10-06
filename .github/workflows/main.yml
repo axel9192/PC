@@ -1,14 +1,12 @@
-name: Windows Cloud PC - Scream + AnyDesk + noVNC
+name: Windows Cloud PC - Scream + UltraVNC + noVNC
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  cloud-pc:
     name: Windows Cloud PC
     runs-on: windows-2025
-
-    # GitHub-hosted runner: máximo 360 minutos
     timeout-minutes: 360
 
     env:
@@ -18,14 +16,13 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. AUDIO DE WINDOWS
+      # AUDIO
       # ============================================================
+
       - name: Iniciar servicios de audio
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "INICIANDO AUDIO"
-          Write-Host "=========================================="
+          Write-Host "Iniciando servicios de audio..."
 
           Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
           Start-Service Audiosrv -ErrorAction SilentlyContinue
@@ -33,36 +30,30 @@ jobs:
           Get-Service AudioEndpointBuilder,Audiosrv |
             Format-Table Name,Status,StartType
 
-      # ============================================================
-      # 2. COMPROBAR AUDIO
-      # ============================================================
+
       - name: Comprobar audio inicial
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "AUDIO INICIAL"
-          Write-Host "=========================================="
+          Write-Host "Dispositivos de audio actuales:"
 
           Get-CimInstance Win32_SoundDevice |
             Select-Object Name,Status,Manufacturer |
             Format-Table -AutoSize
 
+
       # ============================================================
-      # 3. SCREAM
+      # SCREAM
       # ============================================================
+
       - name: Descargar Scream
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "DESCARGANDO SCREAM"
-          Write-Host "=========================================="
-
           $url = "https://github.com/duncanthrax/scream/releases/download/3.6/Scream3.6.zip"
           $zip = "C:\Scream3.6.zip"
           $dir = "C:\Scream"
 
           if (Test-Path $dir) {
-              Remove-Item $dir -Recurse -Force
+            Remove-Item $dir -Recurse -Force
           }
 
           Invoke-WebRequest `
@@ -76,9 +67,7 @@ jobs:
 
           Write-Host "Scream descargado."
 
-      # ============================================================
-      # 4. COMPROBAR SCREAM
-      # ============================================================
+
       - name: Comprobar archivos Scream
         shell: pwsh
         run: |
@@ -87,27 +76,23 @@ jobs:
           $devcon = "C:\Scream\Install\helpers\devcon.exe"
 
           if (-not (Test-Path $sys)) {
-              Write-Host "ERROR: Scream.sys no encontrado."
-              exit 1
+            Write-Error "No se encontró Scream.sys"
+            exit 1
           }
 
           if (-not (Test-Path $inf)) {
-              Write-Host "ERROR: Scream.inf no encontrado."
-              exit 1
+            Write-Error "No se encontró Scream.inf"
+            exit 1
           }
 
           if (-not (Test-Path $devcon)) {
-              Write-Host "ERROR: devcon.exe no encontrado."
-              exit 1
+            Write-Error "No se encontró devcon.exe"
+            exit 1
           }
 
-          Write-Host "Scream.sys OK"
-          Write-Host "Scream.inf OK"
-          Write-Host "devcon.exe OK"
+          Write-Host "Archivos de Scream encontrados."
 
-      # ============================================================
-      # 5. CERTIFICADO SCREAM
-      # ============================================================
+
       - name: Instalar certificado Scream
         shell: pwsh
         run: |
@@ -117,153 +102,183 @@ jobs:
 
           if ($signature.SignerCertificate) {
 
-              $cert = $signature.SignerCertificate
+            Write-Host "Instalando certificado..."
 
-              $store = New-Object `
-                System.Security.Cryptography.X509Certificates.X509Store(
-                  "TrustedPublisher",
-                  "LocalMachine"
-                )
+            $cert = $signature.SignerCertificate
 
-              $store.Open(
-                [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+            $store = New-Object `
+              System.Security.Cryptography.X509Certificates.X509Store(
+                "TrustedPublisher",
+                "LocalMachine"
               )
 
-              $store.Add($cert)
-              $store.Close()
+            $store.Open(
+              [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+            )
 
-              Write-Host "Certificado Scream instalado."
-          }
-          else {
-              Write-Host "No se encontró certificado."
+            $store.Add($cert)
+
+            $store.Close()
+
+          } else {
+
+            Write-Host "No se encontró certificado del controlador."
+
           }
 
-      # ============================================================
-      # 6. INSTALAR SCREAM
-      # ============================================================
+
       - name: Instalar driver Scream
         shell: pwsh
         run: |
           $inf = "C:\Scream\Install\driver\Scream.inf"
           $devcon = "C:\Scream\Install\helpers\devcon.exe"
 
+          Write-Host "Instalando dispositivo Scream..."
+
           & $devcon install $inf "*Scream"
 
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 5
 
-          Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
-          Start-Service Audiosrv -ErrorAction SilentlyContinue
+          Start-Service AudioEndpointBuilder `
+            -ErrorAction SilentlyContinue
 
-      # ============================================================
-      # 7. COMPROBAR AUDIO FINAL
-      # ============================================================
+          Start-Service Audiosrv `
+            -ErrorAction SilentlyContinue
+
+
       - name: Comprobar audio final
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "AUDIO FINAL"
-          Write-Host "=========================================="
+          Write-Host "Dispositivos de audio después de instalar Scream:"
 
           Get-CimInstance Win32_SoundDevice |
             Select-Object Name,Status,Manufacturer |
             Format-Table -AutoSize
 
+
       # ============================================================
-      # 8. DESCARGAR ULTRAVNC 1.8.2.4
+      # ULTRAVNC
       # ============================================================
-      - name: Descargar UltraVNC
+
+      - name: Descargar UltraVNC 1.8.2.4
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "DESCARGANDO ULTRAVNC 1.8.2.4"
-          Write-Host "=========================================="
 
-          $zip = "C:\UltraVNC.zip"
-          $dir = "C:\UltraVNC"
+          $installer = "C:\UltraVNC_1824_x64_Setup.exe"
 
-          if (Test-Path $dir) {
-              Remove-Item $dir -Recurse -Force
-          }
+          $url = `
+            "https://uvnc.eu/download/1800/UltraVNC_1824_x64_Setup.exe"
+
+          Write-Host "Descargando UltraVNC 1.8.2.4 x64..."
 
           Invoke-WebRequest `
-            -Uri "https://uvnc.eu/download/1800/UltraVNC_1824.zip" `
-            -OutFile $zip
+            -Uri $url `
+            -OutFile $installer
 
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $dir `
-            -Force
-
-          $winvnc = Get-ChildItem `
-            -Path $dir `
-            -Filter "winvnc.exe" `
-            -Recurse |
-            Select-Object -First 1
-
-          if (-not $winvnc) {
-              Write-Host "ERROR: winvnc.exe no encontrado."
-              Get-ChildItem $dir -Recurse |
-                Select-Object FullName
-              exit 1
+          if (-not (Test-Path $installer)) {
+            Write-Error "No se pudo descargar UltraVNC."
+            exit 1
           }
 
-          $setpasswd = Get-ChildItem `
-            -Path $dir `
-            -Filter "setpasswd.exe" `
-            -Recurse |
-            Select-Object -First 1
+          Write-Host "UltraVNC descargado correctamente."
 
-          if (-not $setpasswd) {
-              Write-Host "ERROR: setpasswd.exe no encontrado."
-              exit 1
+
+      - name: Crear configuración de instalación UltraVNC
+        shell: pwsh
+        run: |
+
+          $inf = "C:\uvnc-install.inf"
+
+          @"
+          [Setup]
+          Lang=en
+          Dir=C:\Program Files\UltraVNC
+          Group=UltraVNC
+          NoIcons=1
+          SetupType=server_silent
+          Components=ultravnc_server
+          "@ | Out-File `
+            -FilePath $inf `
+            -Encoding ascii
+
+          Write-Host "Archivo de instalación creado."
+
+
+      - name: Instalar UltraVNC
+        shell: pwsh
+        run: |
+
+          $installer = "C:\UltraVNC_1824_x64_Setup.exe"
+          $inf = "C:\uvnc-install.inf"
+
+          Write-Host "Instalando UltraVNC..."
+
+          $arguments = @(
+            "/SP-",
+            "/VERYSILENT",
+            "/NORESTART",
+            "/LOADINF=$inf"
+          )
+
+          $process = Start-Process `
+            -FilePath $installer `
+            -ArgumentList $arguments `
+            -Wait `
+            -PassThru
+
+          Write-Host "Código de instalación: $($process.ExitCode)"
+
+          Start-Sleep -Seconds 5
+
+          $uvnc = "C:\Program Files\UltraVNC"
+
+          if (-not (Test-Path "$uvnc\winvnc.exe")) {
+
+            Write-Host "No se encontró winvnc.exe en Program Files."
+
+            Get-ChildItem `
+              "C:\Program Files" `
+              -Filter "winvnc.exe" `
+              -Recurse `
+              -ErrorAction SilentlyContinue
+
+            exit 1
           }
 
-          Write-Host "winvnc.exe:"
-          Write-Host $winvnc.FullName
+          Write-Host "UltraVNC instalado."
 
-          Write-Host "setpasswd.exe:"
-          Write-Host $setpasswd.FullName
-
-          "UVNC_PATH=$($winvnc.DirectoryName)" |
-            Out-File $env:GITHUB_ENV -Append
-
-          "UVNC_EXE=$($winvnc.FullName)" |
-            Out-File $env:GITHUB_ENV -Append
-
-          "UVNC_SETPASS=$($setpasswd.FullName)" |
-            Out-File $env:GITHUB_ENV -Append
 
       # ============================================================
-      # 9. CONFIGURAR ULTRAVNC
+      # CONFIGURACIÓN VNC
       # ============================================================
-      - name: Configurar UltraVNC
+
+      - name: Configurar contraseña y UltraVNC
         shell: pwsh
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          Write-Host "=========================================="
-          Write-Host "CONFIGURANDO ULTRAVNC"
-          Write-Host "=========================================="
 
           if ([string]::IsNullOrWhiteSpace($env:VNC_PASSWORD)) {
-              Write-Host "ERROR: falta el secret VNC_PASSWORD."
-              exit 1
+            Write-Error "Falta el secret VNC_PASSWORD."
+            exit 1
           }
 
           if ($env:VNC_PASSWORD.Length -gt 8) {
-              Write-Host "ERROR: VNC_PASSWORD debe tener máximo 8 caracteres."
-              exit 1
+            Write-Error "VNC_PASSWORD debe tener máximo 8 caracteres."
+            exit 1
           }
 
-          # Fuerza a UltraVNC a utilizar el INI junto al ejecutable.
+          $programData = "$env:ProgramData\UltraVNC"
+
           New-Item `
-            -ItemType File `
-            -Path "$env:UVNC_PATH\ultravnc.portable" `
+            -ItemType Directory `
+            -Path $programData `
             -Force | Out-Null
 
-          Write-Host "Modo portable activado."
+          $ini = Join-Path `
+            $programData `
+            "ultravnc.ini"
 
-          # Configuración básica.
           @"
           [admin]
           UseRegistry=0
@@ -281,89 +296,172 @@ jobs:
           FileTransferEnabled=0
           QuerySetting=0
           QueryAccept=0
-
-          [poll]
-          TurboMode=1
-          PollUnderCursor=0
-          PollForeground=1
-          PollFullScreen=1
-          OnlyPollConsole=0
-          OnlyPollOnEvent=0
-          EnableDriver=0
-          EnableHook=1
-          EnableVirtual=0
+          DebugMode=0
           "@ | Out-File `
-            -FilePath "$env:UVNC_PATH\ultravnc.ini" `
+            -FilePath $ini `
             -Encoding ascii
 
-          # Establecer contraseña utilizando la herramienta oficial.
-          & $env:UVNC_SETPASS $env:VNC_PASSWORD
+          Write-Host "Configuración creada en:"
+          Write-Host $ini
 
-          if ($LASTEXITCODE -ne 0) {
-              Write-Host "ERROR al establecer contraseña."
+          # Buscar herramienta de contraseña instalada
+          $setpasswd = Get-ChildItem `
+            "C:\Program Files\UltraVNC" `
+            -Filter "setpasswd.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          $createpassword = Get-ChildItem `
+            "C:\Program Files\UltraVNC" `
+            -Filter "createpassword.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if ($setpasswd) {
+
+            Write-Host "Usando setpasswd.exe"
+
+            Set-Location $programData
+
+            & $setpasswd.FullName $env:VNC_PASSWORD
+
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "setpasswd.exe falló."
               exit 1
+            }
+
+          }
+          elseif ($createpassword) {
+
+            Write-Host "Usando createpassword.exe"
+
+            Set-Location $programData
+
+            & $createpassword.FullName $env:VNC_PASSWORD
+
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "createpassword.exe falló."
+              exit 1
+            }
+
+          }
+          else {
+
+            Write-Error `
+              "No se encontró setpasswd.exe ni createpassword.exe."
+
+            Write-Host "Contenido de Program Files\UltraVNC:"
+
+            Get-ChildItem `
+              "C:\Program Files\UltraVNC" `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Select-Object FullName
+
+            exit 1
           }
 
-          Write-Host "Contraseña VNC configurada."
-          Write-Host "La contraseña NO se mostrará en los logs."
+          if (-not (Test-Path $ini)) {
+            Write-Error "No se creó ultravnc.ini."
+            exit 1
+          }
+
+          Write-Host "Configuración UltraVNC lista."
+
 
       # ============================================================
-      # 10. INICIAR ULTRAVNC
+      # FIREWALL
       # ============================================================
-      - name: Iniciar servidor VNC
+
+      - name: Abrir puertos locales
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "INICIANDO ULTRAVNC"
-          Write-Host "=========================================="
 
-          Start-Process `
-            -FilePath $env:UVNC_EXE `
-            -WorkingDirectory $env:UVNC_PATH
-
-          Start-Sleep -Seconds 8
-
-          $vncProcess = Get-Process winvnc `
+          New-NetFirewallRule `
+            -DisplayName "UltraVNC 5900" `
+            -Direction Inbound `
+            -Protocol TCP `
+            -LocalPort 5900 `
+            -Action Allow `
             -ErrorAction SilentlyContinue
 
-          if (-not $vncProcess) {
-              Write-Host "ERROR: UltraVNC no inició."
-              exit 1
+          New-NetFirewallRule `
+            -DisplayName "noVNC 6080" `
+            -Direction Inbound `
+            -Protocol TCP `
+            -LocalPort 6080 `
+            -Action Allow `
+            -ErrorAction SilentlyContinue
+
+
+      # ============================================================
+      # INICIAR ULTRAVNC
+      # ============================================================
+
+      - name: Iniciar UltraVNC
+        shell: pwsh
+        run: |
+
+          $uvnc = "C:\Program Files\UltraVNC"
+          $winvnc = "$uvnc\winvnc.exe"
+
+          if (-not (Test-Path $winvnc)) {
+            Write-Error "winvnc.exe no existe."
+            exit 1
           }
 
-          Write-Host "UltraVNC está ejecutándose."
+          Write-Host "Iniciando servidor UltraVNC..."
 
-          Write-Host ""
-          Write-Host "Comprobando puerto 5900..."
+          Start-Process `
+            -FilePath $winvnc `
+            -WorkingDirectory $uvnc
 
-          $vncPort = Get-NetTCPConnection `
+          Start-Sleep -Seconds 10
+
+          Write-Host "Procesos UltraVNC:"
+
+          Get-Process winvnc `
+            -ErrorAction SilentlyContinue
+
+          Write-Host "Puerto 5900:"
+
+          Get-NetTCPConnection `
+            -LocalPort 5900 `
+            -ErrorAction SilentlyContinue |
+            Format-Table -AutoSize
+
+          $vnc = Get-NetTCPConnection `
             -LocalPort 5900 `
             -ErrorAction SilentlyContinue
 
-          if (-not $vncPort) {
-              Write-Host "ERROR: UltraVNC no abrió el puerto 5900."
-              exit 1
+          if (-not $vnc) {
+
+            Write-Error `
+              "UltraVNC no está escuchando en el puerto 5900."
+
+            exit 1
           }
 
-          $vncPort |
-            Format-Table LocalAddress,LocalPort,State
+          Write-Host "UltraVNC funcionando."
 
-          Write-Host "Puerto VNC OK."
 
       # ============================================================
-      # 11. DESCARGAR NOVNC
+      # NOVNC
       # ============================================================
+
       - name: Descargar noVNC
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "DESCARGANDO NOVNC"
-          Write-Host "=========================================="
 
           $dir = "C:\noVNC"
 
           if (Test-Path $dir) {
-              Remove-Item $dir -Recurse -Force
+            Remove-Item `
+              $dir `
+              -Recurse `
+              -Force
           }
 
           git clone `
@@ -372,59 +470,67 @@ jobs:
             $dir
 
           if (-not (Test-Path "$dir\vnc.html")) {
-              Write-Host "ERROR: vnc.html no encontrado."
-              exit 1
+            Write-Error "No se encontró vnc.html."
+            exit 1
           }
 
-          Write-Host "noVNC instalado."
+          Write-Host "noVNC descargado."
+
 
       # ============================================================
-      # 12. INSTALAR WEBSOCKIFY
+      # WEBSOCKIFY
       # ============================================================
+
       - name: Instalar websockify
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "INSTALANDO WEBSOCKIFY"
-          Write-Host "=========================================="
 
-          python -m pip install --upgrade websockify
+          python -m pip install --upgrade pip
 
-          $scripts = python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+          python -m pip install websockify
+
+          $scripts = python -c `
+            "import sysconfig; print(sysconfig.get_path('scripts'))"
 
           $websockify = Join-Path `
             $scripts `
             "websockify.exe"
 
           if (-not (Test-Path $websockify)) {
-              Write-Host "ERROR: websockify.exe no encontrado."
-              exit 1
+
+            Write-Error `
+              "No se encontró websockify.exe."
+
+            exit 1
           }
 
           "WEBSOCKIFY=$websockify" |
-            Out-File $env:GITHUB_ENV -Append
+            Out-File `
+              $env:GITHUB_ENV `
+              -Append
 
-          Write-Host "websockify instalado."
+          Write-Host "websockify: $websockify"
+
 
       # ============================================================
-      # 13. INICIAR NOVNC + WEBSOCKIFY
+      # INICIAR NOVNC
       # ============================================================
+
       - name: Iniciar noVNC
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "INICIANDO NOVNC"
-          Write-Host "=========================================="
 
           $logOut = "C:\noVNC\websockify-out.log"
           $logErr = "C:\noVNC\websockify-err.log"
 
           $arguments = @(
             "6080",
-            "localhost:5900",
+            "127.0.0.1:5900",
             "--web",
             "C:\noVNC"
           )
+
+          Write-Host "Iniciando websockify/noVNC..."
 
           Start-Process `
             -FilePath $env:WEBSOCKIFY `
@@ -433,7 +539,7 @@ jobs:
             -RedirectStandardError $logErr `
             -WindowStyle Hidden
 
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 8
 
           $connection = Get-NetTCPConnection `
             -LocalPort 6080 `
@@ -441,71 +547,70 @@ jobs:
 
           if (-not $connection) {
 
-              Write-Host "ERROR: websockify no abrió el puerto 6080."
+            Write-Host "STDOUT:"
+            if (Test-Path $logOut) {
+              Get-Content $logOut
+            }
 
-              Write-Host ""
-              Write-Host "===== SALIDA ====="
+            Write-Host "STDERR:"
+            if (Test-Path $logErr) {
+              Get-Content $logErr
+            }
 
-              if (Test-Path $logOut) {
-                  Get-Content $logOut
-              }
+            Write-Error `
+              "noVNC/websockify no está escuchando en 6080."
 
-              Write-Host ""
-              Write-Host "===== ERRORES ====="
-
-              if (Test-Path $logErr) {
-                  Get-Content $logErr
-              }
-
-              exit 1
+            exit 1
           }
 
-          Write-Host "noVNC/websockify está funcionando."
+          Write-Host "noVNC funcionando."
+
 
       # ============================================================
-      # 14. CLOUDFLARED
+      # CLOUDFLARE TUNNEL
       # ============================================================
+
       - name: Descargar Cloudflared
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "DESCARGANDO CLOUDFLARED"
-          Write-Host "=========================================="
 
           $cf = "C:\cloudflared.exe"
 
+          $url = `
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+
+          Write-Host "Descargando Cloudflared..."
+
           Invoke-WebRequest `
-            -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
+            -Uri $url `
             -OutFile $cf
 
           if (-not (Test-Path $cf)) {
-              Write-Host "ERROR: cloudflared no descargado."
-              exit 1
+
+            Write-Error `
+              "No se pudo descargar cloudflared."
+
+            exit 1
           }
 
-          Write-Host "Cloudflared OK."
 
-      # ============================================================
-      # 15. CREAR URL PUBLICA
-      # ============================================================
-      - name: Crear URL noVNC
+      - name: Crear URL pública de noVNC
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "CREANDO URL PUBLICA"
-          Write-Host "=========================================="
 
           $cf = "C:\cloudflared.exe"
 
           $logOut = "C:\cloudflared-out.log"
           $logErr = "C:\cloudflared-err.log"
 
+          Write-Host "Creando túnel público..."
+
           Start-Process `
             -FilePath $cf `
             -ArgumentList @(
               "tunnel",
               "--url",
-              "http://localhost:6080"
+              "http://127.0.0.1:6080"
             ) `
             -RedirectStandardOutput $logOut `
             -RedirectStandardError $logErr `
@@ -513,157 +618,139 @@ jobs:
 
           $url = $null
 
-          for ($i = 0; $i -lt 45; $i++) {
+          for ($i = 0; $i -lt 60; $i++) {
 
-              Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 2
 
-              $text = ""
+            $text = ""
 
-              if (Test-Path $logOut) {
-                  $text += Get-Content $logOut -Raw
-              }
+            if (Test-Path $logOut) {
+              $text += Get-Content $logOut -Raw
+            }
 
-              if (Test-Path $logErr) {
-                  $text += Get-Content $logErr -Raw
-              }
+            if (Test-Path $logErr) {
+              $text += Get-Content $logErr -Raw
+            }
 
-              $match = [regex]::Match(
-                $text,
-                'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
-              )
+            $match = [regex]::Match(
+              $text,
+              'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
+            )
 
-              if ($match.Success) {
-                  $url = $match.Value
-                  break
-              }
+            if ($match.Success) {
+
+              $url = $match.Value
+              break
+            }
           }
 
           if (-not $url) {
 
-              Write-Host "ERROR: no se obtuvo la URL."
+            Write-Host "Cloudflared STDOUT:"
+            if (Test-Path $logOut) {
+              Get-Content $logOut
+            }
 
-              Write-Host ""
-              Write-Host "===== CLOUDFLARE OUT ====="
+            Write-Host "Cloudflared STDERR:"
+            if (Test-Path $logErr) {
+              Get-Content $logErr
+            }
 
-              if (Test-Path $logOut) {
-                  Get-Content $logOut
-              }
+            Write-Error `
+              "No se pudo obtener la URL pública."
 
-              Write-Host ""
-              Write-Host "===== CLOUDFLARE ERR ====="
-
-              if (Test-Path $logErr) {
-                  Get-Content $logErr
-              }
-
-              exit 1
+            exit 1
           }
 
           $novncUrl = "$url/vnc.html"
 
           "NOVNC_URL=$novncUrl" |
-            Out-File $env:GITHUB_ENV -Append
+            Out-File `
+              $env:GITHUB_ENV `
+              -Append
 
           Write-Host ""
-          Write-Host ""
-          Write-Host "############################################"
-          Write-Host "#                                          #"
-          Write-Host "#       WINDOWS CLOUD PC LISTO             #"
-          Write-Host "#                                          #"
-          Write-Host "############################################"
-          Write-Host ""
-          Write-Host "ABRE ESTA DIRECCION EN CHROME:"
-          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host " URL DE NOVNC:"
           Write-Host $novncUrl
+          Write-Host "=============================================="
           Write-Host ""
-          Write-Host "En noVNC pulsa CONNECT."
-          Write-Host "Cuando pida contraseña usa tu VNC_PASSWORD."
-          Write-Host ""
-          Write-Host "############################################"
+
 
       # ============================================================
-      # 16. ANYDESK OPCIONAL
+      # INFORMACIÓN FINAL
       # ============================================================
-      - name: Iniciar AnyDesk opcional
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          Write-Host "=========================================="
-          Write-Host "ANYDESK OPCIONAL"
-          Write-Host "=========================================="
 
-          if (Test-Path "start.bat") {
-              cmd /c start.bat
-          }
-          else {
-              Write-Host "No existe start.bat."
-              Write-Host "Se continúa con noVNC."
-          }
-
-      # ============================================================
-      # 17. INFORMACION FINAL
-      # ============================================================
-      - name: Mostrar información final
+      - name: Mostrar información de conexión
         shell: pwsh
         run: |
+
           Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "          WINDOWS CLOUD PC"
-          Write-Host "=========================================="
+          Write-Host "=============================================="
+          Write-Host "       WINDOWS CLOUD PC LISTO"
+          Write-Host "=============================================="
           Write-Host ""
-          Write-Host "URL:"
+          Write-Host "Abre esta URL en Chrome:"
+          Write-Host ""
           Write-Host $env:NOVNC_URL
           Write-Host ""
-          Write-Host "Abre la URL desde Chrome."
+          Write-Host "En noVNC pulsa Connect."
+          Write-Host "Puerto VNC interno: 5900"
+          Write-Host "Web noVNC: 6080"
           Write-Host ""
-          Write-Host "=========================================="
+          Write-Host "=============================================="
+
 
       # ============================================================
-      # 18. MANTENER ACTIVO
+      # MANTENER ACTIVO
       # ============================================================
+
       - name: Mantener Cloud PC activo
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "WINDOWS CLOUD PC ACTIVO"
-          Write-Host "=========================================="
-          Write-Host ""
-          Write-Host $env:NOVNC_URL
-          Write-Host ""
-          Write-Host "El job permanecerá activo hasta"
-          Write-Host "que GitHub termine el runner."
-          Write-Host ""
-          Write-Host "=========================================="
+
+          Write-Host "Cloud PC activo."
 
           while ($true) {
 
-              Start-Sleep -Seconds 30
+            Start-Sleep -Seconds 30
 
-              $vnc = Get-Process `
-                winvnc `
-                -ErrorAction SilentlyContinue
+            $vnc = Get-Process `
+              winvnc `
+              -ErrorAction SilentlyContinue
 
-              $cf = Get-Process `
-                cloudflared `
-                -ErrorAction SilentlyContinue
+            $cloudflared = Get-Process `
+              cloudflared `
+              -ErrorAction SilentlyContinue
 
-              $ws = Get-NetTCPConnection `
-                -LocalPort 6080 `
-                -ErrorAction SilentlyContinue
+            $vncPort = Get-NetTCPConnection `
+              -LocalPort 5900 `
+              -ErrorAction SilentlyContinue
 
-              if (-not $vnc) {
-                  Write-Host "ERROR: UltraVNC se cerró."
-                  exit 1
-              }
+            $webPort = Get-NetTCPConnection `
+              -LocalPort 6080 `
+              -ErrorAction SilentlyContinue
 
-              if (-not $cf) {
-                  Write-Host "ERROR: Cloudflare Tunnel se cerró."
-                  exit 1
-              }
+            if (-not $vnc) {
+              Write-Error "UltraVNC se cerró."
+              exit 1
+            }
 
-              if (-not $ws) {
-                  Write-Host "ERROR: websockify dejó de escuchar."
-                  exit 1
-              }
+            if (-not $cloudflared) {
+              Write-Error "Cloudflared se cerró."
+              exit 1
+            }
+
+            if (-not $vncPort) {
+              Write-Error "Puerto 5900 dejó de estar activo."
+              exit 1
+            }
+
+            if (-not $webPort) {
+              Write-Error "Puerto 6080 dejó de estar activo."
+              exit 1
+            }
+
+            Write-Host `
+              "$(Get-Date -Format 'HH:mm:ss') - VNC + noVNC + túnel OK"
           }
