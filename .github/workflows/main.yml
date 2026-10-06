@@ -204,7 +204,7 @@ jobs:
           Write-Host "Archivo de instalación creado."
 
 
-      - name: Instalar UltraVNC
+            - name: Instalar UltraVNC
         shell: pwsh
         run: |
 
@@ -217,7 +217,8 @@ jobs:
             "/SP-",
             "/VERYSILENT",
             "/NORESTART",
-            "/LOADINF=$inf"
+            "/COMPONENTS=UltraVNC_Server",
+            "/TASKS=installservice,startservice"
           )
 
           $process = Start-Process `
@@ -228,25 +229,51 @@ jobs:
 
           Write-Host "Código de instalación: $($process.ExitCode)"
 
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 8
 
-          $uvnc = "C:\Program Files\UltraVNC"
+          Write-Host ""
+          Write-Host "Buscando winvnc.exe..."
 
-          if (-not (Test-Path "$uvnc\winvnc.exe")) {
+          $winvnc = Get-ChildItem `
+            "C:\Program Files" `
+            -Filter "winvnc.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
 
-            Write-Host "No se encontró winvnc.exe en Program Files."
+          if (-not $winvnc) {
+
+            Write-Host ""
+            Write-Host "No se encontró winvnc.exe."
+            Write-Host "Contenido relacionado con UltraVNC:"
 
             Get-ChildItem `
               "C:\Program Files" `
-              -Filter "winvnc.exe" `
               -Recurse `
-              -ErrorAction SilentlyContinue
+              -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.FullName -match "UltraVNC|uvnc"
+              } |
+              Select-Object FullName
 
             exit 1
           }
 
-          Write-Host "UltraVNC instalado."
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "UltraVNC encontrado:"
+          Write-Host $winvnc.FullName
+          Write-Host "========================================"
 
+          "UVNC_EXE=$($winvnc.FullName)" |
+            Out-File `
+              $env:GITHUB_ENV `
+              -Append
+
+          "UVNC_DIR=$($winvnc.DirectoryName)" |
+            Out-File `
+              $env:GITHUB_ENV `
+              -Append
 
       # ============================================================
       # CONFIGURACIÓN VNC
@@ -400,23 +427,21 @@ jobs:
       # INICIAR ULTRAVNC
       # ============================================================
 
-      - name: Iniciar UltraVNC
+            - name: Iniciar UltraVNC
         shell: pwsh
         run: |
 
-          $uvnc = "C:\Program Files\UltraVNC"
-          $winvnc = "$uvnc\winvnc.exe"
+          Write-Host "UltraVNC:"
+          Write-Host $env:UVNC_EXE
 
-          if (-not (Test-Path $winvnc)) {
-            Write-Error "winvnc.exe no existe."
+          if (-not (Test-Path $env:UVNC_EXE)) {
+            Write-Error "No existe winvnc.exe."
             exit 1
           }
 
-          Write-Host "Iniciando servidor UltraVNC..."
-
           Start-Process `
-            -FilePath $winvnc `
-            -WorkingDirectory $uvnc
+            -FilePath $env:UVNC_EXE `
+            -WorkingDirectory $env:UVNC_DIR
 
           Start-Sleep -Seconds 10
 
@@ -425,12 +450,8 @@ jobs:
           Get-Process winvnc `
             -ErrorAction SilentlyContinue
 
-          Write-Host "Puerto 5900:"
-
-          Get-NetTCPConnection `
-            -LocalPort 5900 `
-            -ErrorAction SilentlyContinue |
-            Format-Table -AutoSize
+          Write-Host ""
+          Write-Host "Comprobando puerto 5900..."
 
           $vnc = Get-NetTCPConnection `
             -LocalPort 5900 `
@@ -439,12 +460,12 @@ jobs:
           if (-not $vnc) {
 
             Write-Error `
-              "UltraVNC no está escuchando en el puerto 5900."
+              "UltraVNC se inició pero no está escuchando en el puerto 5900."
 
             exit 1
           }
 
-          Write-Host "UltraVNC funcionando."
+          Write-Host "UltraVNC está escuchando en 5900."
 
 
       # ============================================================
