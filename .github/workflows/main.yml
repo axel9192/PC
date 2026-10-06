@@ -88,18 +88,17 @@ jobs:
 
           $dir = $vnc.DirectoryName
           $ini = Join-Path $dir "ultravnc.ini"
-
           $config = @"
-[ultravnc]
-SocketConnect=1
-PortNumber=5900
-AutoPortSelect=0
-InputsEnabled=1
-AllowLoopback=1
-LoopbackOnly=0
-IdleTimeout=0
-IdleInputTimeout=0
-"@
+          [ultravnc]
+          SocketConnect=1
+          PortNumber=5900
+          AutoPortSelect=0
+          InputsEnabled=1
+          AllowLoopback=1
+          LoopbackOnly=0
+          IdleTimeout=0
+          IdleInputTimeout=0
+          "@
 
           Set-Content `
             -Path $ini `
