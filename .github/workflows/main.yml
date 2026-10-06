@@ -236,35 +236,90 @@ jobs:
             "Install\driver\x64\Scream.cat"
 
           $devcon = Join-Path `
-            $root `
-            "Install\helpers\devcon-x64.exe"
+      - name: Instalar Scream sin bloquear
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = "Continue"
 
-          if (!(Test-Path $inf)) {
-            throw "No se encontró Scream.inf."
+          Write-Host "=========================================="
+          Write-Host " INSTALANDO SCREAM"
+          Write-Host "=========================================="
+
+          $zip = "$env:RUNNER_TEMP\Scream3.8.zip"
+          $folder = "C:\Scream"
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/duncanthrax/scream/releases/download/3.8/Scream3.8.zip" `
+            -OutFile $zip `
+            -UseBasicParsing
+
+          if (Test-Path $folder) {
+            Remove-Item $folder -Recurse -Force
           }
 
-          if (!(Test-Path $cat)) {
-            throw "No se encontró Scream.cat."
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $folder `
+            -Force
+
+          $inf = Get-ChildItem `
+            -Path $folder `
+            -Filter "Scream.inf" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if ($null -eq $inf) {
+            Write-Host "No se encontró Scream.inf."
+            Write-Host "Continuando sin Scream..."
+            exit 0
           }
 
-          if (!(Test-Path $devcon)) {
-            throw "No se encontró devcon-x64.exe."
+          Write-Host "INF encontrado:"
+          Write-Host $inf.FullName
+
+          Write-Host "Iniciando instalación con PnPUtil..."
+
+          $p = Start-Process `
+            -FilePath "$env:SystemRoot\System32\pnputil.exe" `
+            -ArgumentList @(
+              "/add-driver",
+              "`"$($inf.FullName)`"",
+              "/install"
+            ) `
+            -PassThru `
+            -WindowStyle Hidden
+
+          try {
+            Wait-Process `
+              -Id $p.Id `
+              -Timeout 30 `
+              -ErrorAction Stop
+
+            Write-Host "PnPUtil terminó."
+            Write-Host "Código: $($p.ExitCode)"
+          }
+          catch {
+            Write-Host ""
+            Write-Host "PnPUtil no terminó en 30 segundos."
+            Write-Host "Se cancela para evitar que el workflow quede congelado."
+
+            if (!$p.HasExited) {
+              Stop-Process `
+                -Id $p.Id `
+                -Force `
+                -ErrorAction SilentlyContinue
+            }
+
+            Write-Host ""
+            Write-Host "Continuando sin Scream..."
           }
 
-          Write-Host "Importando certificado de Scream..."
-
-          Import-Certificate `
-            -FilePath $cat `
-            -CertStoreLocation "Cert:\LocalMachine\TrustedPublisher" `
-            -ErrorAction SilentlyContinue
-
-          Write-Host "Instalando controlador Scream..."
-
-          & $devcon install $inf "*Scream"
-
-          Start-Sleep -Seconds 3
-
-          Write-Host "Scream instalado."
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host " CONTINUANDO CON EL CLOUD PC"
+          Write-Host "=========================================="
 
       # ============================================================
       # 5. INSTALAR PYTHON
