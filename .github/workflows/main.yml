@@ -174,15 +174,16 @@ jobs:
           Write-Host "[...] Iniciando puente VNC..."
 
           Start-Process `
-            -FilePath "python" `
-            -ArgumentList @(
-              "-m"
-              "websockify"
-              "6080"
-              "127.0.0.1:5900"
-              "--web"
-              $novnc.FullName
-            )
+          -FilePath "python" `
+          -ArgumentList @(
+          "-m"
+          "websockify"
+          "--allow-loopback"
+          "6080"
+          "127.0.0.1:5900"
+          "--web"
+          $novnc.FullName
+          )
 
           Start-Sleep -Seconds 5
 
