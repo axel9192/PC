@@ -4,32 +4,33 @@ on:
   workflow_dispatch:
 
 jobs:
-  cloud-pc:
+  cloud:
     runs-on: windows-2025
     timeout-minutes: 360
 
     steps:
 
-      - name: Instalar UltraVNC
+      - name: Descargar UltraVNC
         shell: pwsh
         run: |
-          $url = "https://uvnc.eu/download/1800/UltraVNC_1830_X64_Setup.exe"
-          $exe = "$env:TEMP\UltraVNC.exe"
+          $zip = "$env:TEMP\UltraVNC.zip"
 
-          Invoke-WebRequest $url -OutFile $exe
+          Invoke-WebRequest `
+            "https://uvnc.eu/download/1800/UltraVNC_1830.zip" `
+            -OutFile $zip
 
-          Start-Process $exe `
-            -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" `
-            -Wait
+          Expand-Archive `
+            $zip `
+            "C:\UltraVNC" `
+            -Force
 
-      - name: Configurar UltraVNC
+      - name: Configurar contraseña e iniciar UltraVNC
         shell: pwsh
         run: |
           $vnc = Get-ChildItem `
-            "C:\Program Files","C:\Program Files (x86)" `
+            "C:\UltraVNC" `
             -Filter winvnc.exe `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
+            -Recurse |
             Select-Object -First 1
 
           if (!$vnc) {
@@ -37,12 +38,16 @@ jobs:
           }
 
           $dir = $vnc.DirectoryName
-          $ini = "$env:ProgramData\UltraVNC"
 
-          New-Item $ini -ItemType Directory -Force | Out-Null
+          New-Item `
+            "C:\ProgramData\UltraVNC" `
+            -ItemType Directory `
+            -Force | Out-Null
 
-          Copy-Item "$dir\ultravnc.ini" `
-            "$ini\ultravnc.ini" `
+          Copy-Item `
+            "$dir\ultravnc.ini" `
+            "C:\ProgramData\UltraVNC\ultravnc.ini" `
+            -Force `
             -ErrorAction SilentlyContinue
 
           $cp = "$env:TEMP\createpassword.zip"
@@ -58,22 +63,26 @@ jobs:
 
           $tool = Get-ChildItem `
             "$env:TEMP\createpassword" `
-            -Filter "createpassword64.exe" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
+            -Filter createpassword64.exe `
+            -Recurse |
             Select-Object -First 1
 
-          if ($tool) {
-            Push-Location $ini
-            & $tool.FullName 12345678
-            Pop-Location
+          if (!$tool) {
+            throw "No se encontró createpassword64.exe"
           }
+
+          Push-Location "C:\ProgramData\UltraVNC"
+
+          & $tool.FullName secure 1
+          & $tool.FullName secure 12345678
+
+          Pop-Location
 
           Start-Process $vnc.FullName
 
-          Start-Sleep 5
+          Start-Sleep -Seconds 5
 
-      - name: Instalar Scream
+      - name: Intentar instalar Scream
         shell: pwsh
         continue-on-error: true
         run: |
@@ -91,56 +100,12 @@ jobs:
           $inf = Get-ChildItem `
             "C:\Scream" `
             -Filter Scream.inf `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
+            -Recurse |
             Select-Object -First 1
 
           if ($inf) {
             pnputil /add-driver $inf.FullName /install
           }
-
-      - name: Instalar Websockify
-        shell: pwsh
-        run: |
-          python -m pip install websockify
-
-      - name: Iniciar noVNC de UltraVNC
-        shell: pwsh
-        run: |
-          $vnc = Get-ChildItem `
-            "C:\Program Files","C:\Program Files (x86)" `
-            -Filter winvnc.exe `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-
-          if (!$vnc) {
-            throw "No se encontró winvnc.exe"
-          }
-
-          $web = Get-ChildItem `
-            $vnc.DirectoryName `
-            -Recurse `
-            -Include "vnc.html","novnc_proxy.exe" `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-
-          if ($web) {
-            Write-Host "Componente web de UltraVNC encontrado."
-          }
-
-          Start-Process `
-            python `
-            -ArgumentList @(
-              "-m",
-              "websockify",
-              "6080",
-              "127.0.0.1:5900",
-              "--web",
-              $vnc.DirectoryName
-            )
-
-          Start-Sleep 5
 
       - name: Iniciar Cloudflare
         shell: pwsh
@@ -153,4 +118,4 @@ jobs:
 
           & $cf tunnel `
             --protocol http2 `
-            --url http://127.0.0.1:6080
+            --url http://127.0.0.1:5800
